@@ -1,6 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
@@ -26,7 +25,7 @@ app.get("/test", (req, res) => {
 });
 
 // =====================
-// 💳 STRIPE SUCCESS / CANCEL
+// 💳 STRIPE ROUTES
 // =====================
 app.get("/success", (req, res) => {
     res.send("Payment successful 🎉 You now have AI Pro access");
@@ -36,9 +35,6 @@ app.get("/cancel", (req, res) => {
     res.send("Payment cancelled");
 });
 
-// =====================
-// 💰 STRIPE SUBSCRIPTION
-// =====================
 app.post("/create-subscription", async (req, res) => {
     try {
         const session = await stripe.checkout.sessions.create({
@@ -67,7 +63,7 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// 🤖 REAL AI REPLY (OpenAI)
+// 🤖 REAL AI (NO node-fetch, SAFE FETCH)
 // =====================
 app.post("/ai-reply", async (req, res) => {
     try {
@@ -77,7 +73,7 @@ app.post("/ai-reply", async (req, res) => {
             return res.json({ reply: "Send text to chat 🤖" });
         }
 
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        const response = await globalThis.fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -86,19 +82,14 @@ app.post("/ai-reply", async (req, res) => {
             body: JSON.stringify({
                 model: "gpt-4o-mini",
                 messages: [
-                    {
-                        role: "system",
-                        content: "You are a helpful, friendly AI keyboard assistant."
-                    },
-                    {
-                        role: "user",
-                        content: text
-                    }
+                    { role: "system", content: "You are a helpful AI keyboard assistant." },
+                    { role: "user", content: text }
                 ]
             })
         });
 
         const data = await response.json();
+
         const reply = data?.choices?.[0]?.message?.content || "No response";
 
         res.json({ reply });
@@ -109,31 +100,26 @@ app.post("/ai-reply", async (req, res) => {
 });
 
 // =====================
-// 💘 FLIRT AI (RULE BASED)
+// 💘 FLIRT AI
 // =====================
 app.post("/flirt", (req, res) => {
-    try {
-        const text = (req.body?.text || "").toLowerCase();
+    const text = (req.body?.text || "").toLowerCase();
 
-        let reply = "You just made my day 😊";
+    let reply = "You just made my day 😊";
 
-        if (text.includes("hi") || text.includes("hello")) {
-            reply = "Hey you 😏 I was hoping you'd text";
-        } else if (text.includes("miss")) {
-            reply = "I might miss you a little more 😉";
-        } else if (text.includes("love")) {
-            reply = "Careful... you're making me blush 😳";
-        }
-
-        res.json({ reply });
-
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+    if (text.includes("hi") || text.includes("hello")) {
+        reply = "Hey you 😏 I was hoping you'd text";
+    } else if (text.includes("miss")) {
+        reply = "I might miss you a little more 😉";
+    } else if (text.includes("love")) {
+        reply = "Careful... you're making me blush 😳";
     }
+
+    res.json({ reply });
 });
 
 // =====================
-// 🌍 TRANSLATE (PLACEHOLDER)
+// 🌍 TRANSLATE
 // =====================
 app.post("/translate", (req, res) => {
     const text = req.body?.text || "";
@@ -197,7 +183,7 @@ app.get("/translate-test", (req, res) => {
 });
 
 // =====================
-// 🚀 START SERVER (RENDER SAFE)
+// 🚀 START SERVER
 // =====================
 const PORT = process.env.PORT || 3000;
 
