@@ -129,3 +129,22 @@ app.get("/ai-reply-test", (req, res) => {
 
     res.json({ reply });
 });
+app.get("/flirt-test", (req, res) => {
+    const text = (req.query.text || "").toLowerCase();
+
+    if (!text) {
+        return res.json({ reply: "Add ?text=hi to test 💘" });
+    }
+
+    let reply = "You just made my day 😊";
+
+    if (text.includes("hi") || text.includes("hello")) {
+        reply = "Hey you 😏 I was hoping you'd text";
+    } else if (text.includes("miss")) {
+        reply = "I might miss you a little more 😉";
+    } else if (text.includes("love")) {
+        reply = "Careful... you're making me blush 😳";
+    }
+
+    res.json({ reply });
+});
