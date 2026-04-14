@@ -26,34 +26,41 @@ app.get("/test", (req, res) => {
 // =====================
 // 🤖 AI REPLY
 // =====================
-app.post("/ai-reply", (req, res) => {
+const fetch = require("node-fetch");
+
+app.post("/ai-reply", async (req, res) => {
     try {
-        const text = (req.body?.text || "").toLowerCase();
+        const text = req.body?.text;
 
         if (!text) {
-            return res.json({ reply: "No input received 🤖" });
+            return res.json({ reply: "Send text to chat 🤖" });
         }
 
-        let reply = "Got it 👍";
-
-        if (text.includes("how are you")) {
-            reply = "I'm doing great! How about you?";
-        } else if (text.includes("help")) {
-            reply = "I can help you with that!";
-        } else if (text.includes("what")) {
-            reply = "Interesting question — tell me more.";
-        }
-
-        return res.json({ reply });
-
-    } catch (error) {
-        return res.status(500).json({
-            error: "AI reply failed",
-            details: error.message
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "system", content: "You are a helpful, friendly AI keyboard assistant." },
+                    { role: "user", content: text }
+                ]
+            })
         });
+
+        const data = await response.json();
+
+        const reply = data?.choices?.[0]?.message?.content || "No response";
+
+        res.json({ reply });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
-
 // =====================
 // 💘 FLIRT AI
 // =====================
