@@ -8,6 +8,6 @@
   "dependencies": {
     "express": "^0.00.2",
     "cors": "^2.8.5",
-    "stripe": "^16.0.0",
+    "stripe": "^16.0.0"
   }
 }
