@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>BB AI Test Dashboard</title>
+<style>
+    body {
+        font-family: Arial;
+        background: #0f172a;
+        color: white;
+        padding: 20px;
+    }
+
+    input, button {
+        padding: 10px;
+        margin: 5px;
+        width: 300px;
+        border-radius: 8px;
+        border: none;
+    }
+
+    button {
+        cursor: pointer;
+        background: #3b82f6;
+        color: white;
+    }
+
+    .box {
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #1e293b;
+        border-radius: 10px;
+    }
+
+    pre {
+        background: #000;
+        padding: 10px;
+        border-radius: 8px;
+        overflow-x: auto;
+    }
+</style>
+</head>
+<body>
+
+<h1>🚀 BB AI Test Dashboard</h1>
+
+<!-- AI REPLY -->
+<div class="box">
+<h2>🤖 AI Reply</h2>
+<input id="aiText" placeholder="Type message..." />
+<button onclick="testAI()">Send</button>
+<pre id="aiOut"></pre>
+</div>
+
+<!-- FLIRT -->
+<div class="box">
+<h2>💘 Flirt AI</h2>
+<input id="flirtText" placeholder="Type flirt text..." />
+<button onclick="testFlirt()">Send</button>
+<pre id="flirtOut"></pre>
+</div>
+
+<!-- TRANSLATE -->
+<div class="box">
+<h2>🌍 Translate</h2>
+<input id="transText" placeholder="Type text..." />
+<button onclick="testTranslate()">Translate</button>
+<pre id="transOut"></pre>
+</div>
+
+<!-- STRIPE -->
+<div class="box">
+<h2>💰 Stripe Subscription</h2>
+<button onclick="buy()">Buy Pro</button>
+</div>
+
+<script>
+const BASE = window.location.origin;
+
+// 🤖 AI
+async function testAI() {
+    const text = document.getElementById("aiText").value;
+
+    const res = await fetch(BASE + "/ai-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+    });
+
+    const data = await res.json();
+    document.getElementById("aiOut").innerText = JSON.stringify(data, null, 2);
+}
+
+// 💘 Flirt
+async function testFlirt() {
+    const text = document.getElementById("flirtText").value;
+
+    const res = await fetch(BASE + "/flirt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+    });
+
+    const data = await res.json();
+    document.getElementById("flirtOut").innerText = JSON.stringify(data, null, 2);
+}
+
+// 🌍 Translate
+async function testTranslate() {
+    const text = document.getElementById("transText").value;
+
+    const res = await fetch(BASE + "/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+    });
+
+    const data = await res.json();
+    document.getElementById("transOut").innerText = JSON.stringify(data, null, 2);
+}
+
+// 💰 Stripe
+async function buy() {
+    const res = await fetch(BASE + "/create-subscription", {
+        method: "POST"
+    });
+
+    const data = await res.json();
+
+    if (data.url) {
+        window.location.href = data.url;
+    } else {
+        alert("Error starting checkout");
+    }
+}
+</script>
+
+</body>
+</html>
