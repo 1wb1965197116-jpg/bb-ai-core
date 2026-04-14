@@ -112,3 +112,20 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`BB AI Core running on port ${PORT}`);
 });
+app.get("/ai-reply-test", (req, res) => {
+    const text = (req.query.text || "").toLowerCase();
+
+    if (!text) {
+        return res.json({ reply: "Add ?text=hello to test 🤖" });
+    }
+
+    let reply = "Got it 👍";
+
+    if (text.includes("how are you")) {
+        reply = "I'm doing great! How about you?";
+    } else if (text.includes("help")) {
+        reply = "I can help you with that!";
+    }
+
+    res.json({ reply });
+});
