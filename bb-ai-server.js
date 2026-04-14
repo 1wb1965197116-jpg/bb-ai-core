@@ -148,3 +148,14 @@ app.get("/flirt-test", (req, res) => {
 
     res.json({ reply });
 });
+app.get("/translate-test", (req, res) => {
+    const text = req.query.text || "";
+
+    if (!text) {
+        return res.json({ translated: "Add ?text=hello to test 🌍" });
+    }
+
+    res.json({
+        translated: "[EN] " + text
+    });
+});
