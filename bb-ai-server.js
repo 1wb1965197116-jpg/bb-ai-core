@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const fetch = require("node-fetch");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 
@@ -10,24 +12,63 @@ app.use(cors());
 app.use(express.json());
 
 // =====================
-// 🧠 HEALTH CHECK (BROWSER SAFE)
+// 🧠 HEALTH CHECK
 // =====================
 app.get("/", (req, res) => {
     res.send("BB AI Core Running 🚀");
 });
 
 // =====================
-// 🧪 TEST ROUTE (DEBUGGING)
+// 🧪 TEST ROUTE
 // =====================
 app.get("/test", (req, res) => {
     res.json({ status: "OK", message: "API is working" });
 });
 
 // =====================
-// 🤖 AI REPLY
+// 💳 STRIPE SUCCESS / CANCEL
 // =====================
-const fetch = require("node-fetch");
+app.get("/success", (req, res) => {
+    res.send("Payment successful 🎉 You now have AI Pro access");
+});
 
+app.get("/cancel", (req, res) => {
+    res.send("Payment cancelled");
+});
+
+// =====================
+// 💰 STRIPE SUBSCRIPTION
+// =====================
+app.post("/create-subscription", async (req, res) => {
+    try {
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            mode: "subscription",
+            line_items: [{
+                price_data: {
+                    currency: "usd",
+                    product_data: {
+                        name: "BB AI Keyboard Pro"
+                    },
+                    unit_amount: 999,
+                    recurring: { interval: "month" }
+                },
+                quantity: 1
+            }],
+            success_url: "https://bb-ai-core.onrender.com/success",
+            cancel_url: "https://bb-ai-core.onrender.com/cancel"
+        });
+
+        res.json({ url: session.url });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// =====================
+// 🤖 REAL AI REPLY (OpenAI)
+// =====================
 app.post("/ai-reply", async (req, res) => {
     try {
         const text = req.body?.text;
@@ -45,14 +86,19 @@ app.post("/ai-reply", async (req, res) => {
             body: JSON.stringify({
                 model: "gpt-4o-mini",
                 messages: [
-                    { role: "system", content: "You are a helpful, friendly AI keyboard assistant." },
-                    { role: "user", content: text }
+                    {
+                        role: "system",
+                        content: "You are a helpful, friendly AI keyboard assistant."
+                    },
+                    {
+                        role: "user",
+                        content: text
+                    }
                 ]
             })
         });
 
         const data = await response.json();
-
         const reply = data?.choices?.[0]?.message?.content || "No response";
 
         res.json({ reply });
@@ -61,8 +107,9 @@ app.post("/ai-reply", async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
 // =====================
-// 💘 FLIRT AI
+// 💘 FLIRT AI (RULE BASED)
 // =====================
 app.post("/flirt", (req, res) => {
     try {
@@ -78,47 +125,29 @@ app.post("/flirt", (req, res) => {
             reply = "Careful... you're making me blush 😳";
         }
 
-        return res.json({ reply });
+        res.json({ reply });
 
-    } catch (error) {
-        return res.status(500).json({
-            error: "Flirt AI failed",
-            details: error.message
-        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
 // =====================
-// 🌍 TRANSLATE (SIMPLE PLACEHOLDER)
+// 🌍 TRANSLATE (PLACEHOLDER)
 // =====================
 app.post("/translate", (req, res) => {
-    try {
-        const text = req.body?.text || "";
+    const text = req.body?.text || "";
 
-        if (!text) {
-            return res.json({ translated: "No text provided" });
-        }
-
-        return res.json({
-            translated: "[EN] " + text
-        });
-
-    } catch (error) {
-        return res.status(500).json({
-            error: "Translation failed",
-            details: error.message
-        });
+    if (!text) {
+        return res.json({ translated: "No text provided" });
     }
+
+    res.json({ translated: "[EN] " + text });
 });
 
 // =====================
-// 🚀 START SERVER (RENDER SAFE)
+// 🌐 BROWSER TEST ROUTES
 // =====================
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-    console.log(`BB AI Core running on port ${PORT}`);
-});
 app.get("/ai-reply-test", (req, res) => {
     const text = (req.query.text || "").toLowerCase();
 
@@ -136,6 +165,7 @@ app.get("/ai-reply-test", (req, res) => {
 
     res.json({ reply });
 });
+
 app.get("/flirt-test", (req, res) => {
     const text = (req.query.text || "").toLowerCase();
 
@@ -155,6 +185,7 @@ app.get("/flirt-test", (req, res) => {
 
     res.json({ reply });
 });
+
 app.get("/translate-test", (req, res) => {
     const text = req.query.text || "";
 
@@ -162,7 +193,14 @@ app.get("/translate-test", (req, res) => {
         return res.json({ translated: "Add ?text=hello to test 🌍" });
     }
 
-    res.json({
-        translated: "[EN] " + text
-    });
+    res.json({ translated: "[EN] " + text });
+});
+
+// =====================
+// 🚀 START SERVER (RENDER SAFE)
+// =====================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`BB AI Core running on port ${PORT}`);
 });
