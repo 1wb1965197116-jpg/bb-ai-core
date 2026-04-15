@@ -5,15 +5,16 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
 
 // =====================
+// 🧠 MEMORY STORE
+// =====================
+let conversations = {};
+
+// =====================
 // MIDDLEWARE
 // =====================
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
-// =====================
-// 🧠 HEALTH CHECK
-// =================
-
 
 // =====================
 // 🧪 TEST ROUTE
@@ -61,17 +62,48 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// 🤖 REAL AI (NO node-fetch, SAFE FETCH)
+// 🤖 AI REPLY (MEMORY + MODES + PRO LOCK)
 // =====================
 app.post("/ai-reply", async (req, res) => {
     try {
         const text = req.body?.text;
+        const userId = req.body?.userId || "default";
+        const mode = req.body?.mode || "normal";
+        const isPro = req.body?.pro === true;
 
         if (!text) {
             return res.json({ reply: "Send text to chat 🤖" });
         }
 
-        const response = await globalThis.fetch("https://api.openai.com/v1/chat/completions", {
+        // init memory
+        if (!conversations[userId]) {
+            conversations[userId] = [];
+        }
+
+        // 🔒 FREE LIMIT
+        if (!isPro && conversations[userId].length > 6) {
+            return res.json({
+                reply: "🔒 Upgrade to Pro for unlimited AI access"
+            });
+        }
+
+        // 🎭 MODE SYSTEM
+        let systemPrompt = "You are a helpful AI assistant.";
+
+        if (mode === "flirt") {
+            systemPrompt = "You are a charming, flirty, human-like assistant.";
+        } else if (mode === "business") {
+            systemPrompt = "You are a professional business assistant.";
+        }
+
+        // store user message
+        conversations[userId].push({
+            role: "user",
+            content: text
+        });
+
+        // call AI (NO node-fetch needed)
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -80,8 +112,8 @@ app.post("/ai-reply", async (req, res) => {
             body: JSON.stringify({
                 model: "gpt-4o-mini",
                 messages: [
-                    { role: "system", content: "You are a helpful AI keyboard assistant." },
-                    { role: "user", content: text }
+                    { role: "system", content: systemPrompt },
+                    ...conversations[userId]
                 ]
             })
         });
@@ -90,15 +122,24 @@ app.post("/ai-reply", async (req, res) => {
 
         const reply = data?.choices?.[0]?.message?.content || "No response";
 
+        // store AI reply
+        conversations[userId].push({
+            role: "assistant",
+            content: reply
+        });
+
         res.json({ reply });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({
+            error: "AI failed",
+            details: err.message
+        });
     }
 });
 
 // =====================
-// 💘 FLIRT AI
+// 💘 FLIRT AI (LIGHTWEIGHT)
 // =====================
 app.post("/flirt", (req, res) => {
     const text = (req.body?.text || "").toLowerCase();
@@ -117,7 +158,7 @@ app.post("/flirt", (req, res) => {
 });
 
 // =====================
-// 🌍 TRANSLATE
+// 🌍 TRANSLATE (PLACEHOLDER)
 // =====================
 app.post("/translate", (req, res) => {
     const text = req.body?.text || "";
@@ -136,46 +177,14 @@ app.get("/ai-reply-test", (req, res) => {
     const text = (req.query.text || "").toLowerCase();
 
     if (!text) {
-        return res.json({ reply: "Add ?text=hello to test 🤖" });
+        return res.json({ reply: "Add ?text=hello 🤖" });
     }
 
-    let reply = "Got it 👍";
-
-    if (text.includes("how are you")) {
-        reply = "I'm doing great! How about you?";
-    } else if (text.includes("help")) {
-        reply = "I can help you with that!";
-    }
-
-    res.json({ reply });
-});
-
-app.get("/flirt-test", (req, res) => {
-    const text = (req.query.text || "").toLowerCase();
-
-    if (!text) {
-        return res.json({ reply: "Add ?text=hi to test 💘" });
-    }
-
-    let reply = "You just made my day 😊";
-
-    if (text.includes("hi") || text.includes("hello")) {
-        reply = "Hey you 😏 I was hoping you'd text";
-    } else if (text.includes("miss")) {
-        reply = "I might miss you a little more 😉";
-    } else if (text.includes("love")) {
-        reply = "Careful... you're making me blush 😳";
-    }
-
-    res.json({ reply });
+    res.json({ reply: "Test response: " + text });
 });
 
 app.get("/translate-test", (req, res) => {
     const text = req.query.text || "";
-
-    if (!text) {
-        return res.json({ translated: "Add ?text=hello to test 🌍" });
-    }
 
     res.json({ translated: "[EN] " + text });
 });
