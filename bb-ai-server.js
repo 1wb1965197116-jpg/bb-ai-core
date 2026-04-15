@@ -3,8 +3,6 @@ const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-
-// IMPORTANT: Node 18+ has built-in fetch
 const fetch = globalThis.fetch;
 
 const app = express();
@@ -12,7 +10,7 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // =====================
-// MEMORY STORE (TEMP DB)
+// IN-MEMORY DATABASE
 // =====================
 let users = {};
 let conversations = {};
@@ -25,8 +23,12 @@ app.use(express.json());
 app.use(express.static("public"));
 
 // =====================
-// TEST ROUTE
+// HEALTH CHECK
 // =====================
+app.get("/", (req, res) => {
+    res.send("BB AI Core Running 🚀");
+});
+
 app.get("/test", (req, res) => {
     res.json({ status: "OK", message: "API is working" });
 });
@@ -120,7 +122,7 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// STRIPE PAGES
+// STRIPE STATUS PAGES
 // =====================
 app.get("/success", (req, res) => {
     res.send("Payment successful 🎉 You now have AI Pro access");
@@ -131,7 +133,7 @@ app.get("/cancel", (req, res) => {
 });
 
 // =====================
-// 🧠 PUBLIC AI (NO LOGIN)
+// PUBLIC AI (NO LOGIN)
 // =====================
 app.post("/ai-reply-public", async (req, res) => {
     try {
@@ -164,12 +166,12 @@ app.post("/ai-reply-public", async (req, res) => {
 });
 
 // =====================
-// 🔐 PRO AI (LOGIN + MEMORY)
+// PRO AI (LOGIN + MEMORY)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
     try {
-        const text = req.body?.text;
         const email = req.user.email;
+        const text = req.body?.text;
 
         if (!text) {
             return res.json({ reply: "Send text 🤖" });
@@ -201,10 +203,7 @@ app.post("/ai-reply", auth, async (req, res) => {
             },
             body: JSON.stringify({
                 model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: "You are a helpful assistant." },
-                    ...conversations[email]
-                ]
+                messages: conversations[email]
             })
         });
 
@@ -226,7 +225,7 @@ app.post("/ai-reply", auth, async (req, res) => {
 });
 
 // =====================
-// 🌍 TRANSLATE
+// TRANSLATE (SIMPLE)
 // =====================
 app.post("/translate", (req, res) => {
     const text = req.body?.text || "";
@@ -234,7 +233,7 @@ app.post("/translate", (req, res) => {
 });
 
 // =====================
-// 🚀 START SERVER
+// START SERVER
 // =====================
 const PORT = process.env.PORT || 3000;
 
