@@ -5,7 +5,7 @@ mongoose.connect(process.env.MONGO_URL);
 const UserSchema = new mongoose.Schema({
   email: String,
   password: String,
-  pro: Boolean,
+  pro: { type: Boolean, default: false },
   stripeCustomerId: String
 });
 
