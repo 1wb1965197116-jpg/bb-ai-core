@@ -6,19 +6,17 @@
 </head>
 <body>
 
-<div class="app">
+<div id="login">
+  <input id="email" placeholder="email">
+  <input id="password" type="password" placeholder="password">
+  <button onclick="login()">Login</button>
+  <button onclick="register()">Register</button>
+</div>
 
-  <div class="header">
-    🤖 BB AI Chat
-  </div>
-
+<div id="chatUI" style="display:none;">
   <div id="chat"></div>
-
-  <div class="inputBox">
-    <input id="text" placeholder="Message AI..." />
-    <button onclick="send()">Send</button>
-  </div>
-
+  <input id="text" placeholder="message..." />
+  <button onclick="send()">Send</button>
 </div>
 
 <script src="app.js"></script>
