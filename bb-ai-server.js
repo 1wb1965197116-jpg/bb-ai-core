@@ -9,33 +9,10 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // =====================
-// 🧠 IN-MEMORY DB (TEMP)
+// MEMORY STORE
 // =====================
 let users = {};
 let conversations = {};
-
-// =====================
-// ⚠️ STRIPE WEBHOOK NEEDS RAW BODY FIRST
-// =====================
-app.post("/stripe-webhook", express.raw({ type: "application/json" }), (req, res) => {
-    try {
-        const event = req.body;
-
-        if (event.type === "checkout.session.completed") {
-            const email = event.data.object.customer_email;
-
-            if (users[email]) {
-                users[email].pro = true;
-                console.log("🔥 PRO UNLOCKED:", email);
-            }
-        }
-
-        res.json({ received: true });
-
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
 
 // =====================
 // MIDDLEWARE
@@ -45,14 +22,14 @@ app.use(express.json());
 app.use(express.static("public"));
 
 // =====================
-// 🧪 TEST
+// TEST ROUTE
 // =====================
 app.get("/test", (req, res) => {
     res.json({ status: "OK", message: "API is working" });
 });
 
 // =====================
-// 🔐 AUTH MIDDLEWARE
+// AUTH MIDDLEWARE (FOR PRO ROUTES)
 // =====================
 function auth(req, res, next) {
     try {
@@ -66,7 +43,7 @@ function auth(req, res, next) {
 }
 
 // =====================
-// 👤 REGISTER
+// REGISTER
 // =====================
 app.post("/register", async (req, res) => {
     const { email, password } = req.body;
@@ -90,7 +67,7 @@ app.post("/register", async (req, res) => {
 });
 
 // =====================
-// 🔑 LOGIN
+// LOGIN
 // =====================
 app.post("/login", async (req, res) => {
     const { email, password } = req.body;
@@ -107,16 +84,8 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// 💳 STRIPE ROUTES
+// STRIPE CHECKOUT
 // =====================
-app.get("/success", (req, res) => {
-    res.send("Payment successful 🎉 You now have AI Pro access");
-});
-
-app.get("/cancel", (req, res) => {
-    res.send("Payment cancelled");
-});
-
 app.post("/create-subscription", async (req, res) => {
     try {
         const { email } = req.body;
@@ -129,7 +98,7 @@ app.post("/create-subscription", async (req, res) => {
                 price_data: {
                     currency: "usd",
                     product_data: {
-                        name: "BB AI Keyboard Pro"
+                        name: "BB AI Pro"
                     },
                     unit_amount: 999,
                     recurring: { interval: "month" }
@@ -147,15 +116,54 @@ app.post("/create-subscription", async (req, res) => {
     }
 });
 
+app.get("/success", (req, res) => {
+    res.send("Payment successful 🎉");
+});
+
+app.get("/cancel", (req, res) => {
+    res.send("Payment cancelled");
+});
+
 // =====================
-// 🤖 AI (MEMORY + MODES + PRO LOCK)
+// 🧠 PUBLIC AI (NO LOGIN - FOR FRONTEND TESTING)
+// =====================
+app.post("/ai-reply-public", async (req, res) => {
+    try {
+        const text = req.body?.text || "";
+
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "system", content: "You are a helpful AI assistant." },
+                    { role: "user", content: text }
+                ]
+            })
+        });
+
+        const data = await response.json();
+
+        res.json({
+            reply: data?.choices?.[0]?.message?.content || "No response"
+        });
+
+    } catch (err) {
+        res.json({ reply: "AI error: " + err.message });
+    }
+});
+
+// =====================
+// 🔐 PRO AI (LOGIN REQUIRED + MEMORY)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
     try {
         const text = req.body?.text;
-        const mode = req.body?.mode || "normal";
         const email = req.user.email;
-        const user = users[email];
 
         if (!text) {
             return res.json({ reply: "Send text 🤖" });
@@ -165,20 +173,13 @@ app.post("/ai-reply", auth, async (req, res) => {
             conversations[email] = [];
         }
 
-        // 🔒 FREE LIMIT
-        if (!user.pro && conversations[email].length > 6) {
+        const user = users[email];
+
+        // FREE LIMIT
+        if (!user?.pro && conversations[email].length > 6) {
             return res.json({
                 reply: "🔒 Upgrade to Pro for unlimited AI"
             });
-        }
-
-        // 🎭 MODE SYSTEM
-        let systemPrompt = "You are a helpful AI assistant.";
-
-        if (mode === "flirt") {
-            systemPrompt = "You are a smooth, human-like flirty assistant.";
-        } else if (mode === "business") {
-            systemPrompt = "You are a professional business assistant.";
         }
 
         conversations[email].push({
@@ -195,13 +196,14 @@ app.post("/ai-reply", auth, async (req, res) => {
             body: JSON.stringify({
                 model: "gpt-4o-mini",
                 messages: [
-                    { role: "system", content: systemPrompt },
+                    { role: "system", content: "You are a helpful assistant." },
                     ...conversations[email]
                 ]
             })
         });
 
         const data = await response.json();
+
         const reply = data?.choices?.[0]?.message?.content || "No response";
 
         conversations[email].push({
@@ -212,10 +214,7 @@ app.post("/ai-reply", auth, async (req, res) => {
         res.json({ reply });
 
     } catch (err) {
-        res.status(500).json({
-            error: "AI failed",
-            details: err.message
-        });
+        res.status(500).json({ error: err.message });
     }
 });
 
