@@ -4,16 +4,38 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
-
-// simple DB (upgrade later to real DB)
-let users = {};
 const app = express();
 
+const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+
 // =====================
-// 🧠 MEMORY STORE
+// 🧠 IN-MEMORY DB (TEMP)
 // =====================
+let users = {};
 let conversations = {};
+
+// =====================
+// ⚠️ STRIPE WEBHOOK NEEDS RAW BODY FIRST
+// =====================
+app.post("/stripe-webhook", express.raw({ type: "application/json" }), (req, res) => {
+    try {
+        const event = req.body;
+
+        if (event.type === "checkout.session.completed") {
+            const email = event.data.object.customer_email;
+
+            if (users[email]) {
+                users[email].pro = true;
+                console.log("🔥 PRO UNLOCKED:", email);
+            }
+        }
+
+        res.json({ received: true });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // =====================
 // MIDDLEWARE
@@ -23,10 +45,65 @@ app.use(express.json());
 app.use(express.static("public"));
 
 // =====================
-// 🧪 TEST ROUTE
+// 🧪 TEST
 // =====================
 app.get("/test", (req, res) => {
     res.json({ status: "OK", message: "API is working" });
+});
+
+// =====================
+// 🔐 AUTH MIDDLEWARE
+// =====================
+function auth(req, res, next) {
+    try {
+        const token = req.headers.authorization?.split(" ")[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch {
+        res.status(401).json({ error: "Unauthorized" });
+    }
+}
+
+// =====================
+// 👤 REGISTER
+// =====================
+app.post("/register", async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.json({ error: "Missing fields" });
+    }
+
+    if (users[email]) {
+        return res.json({ error: "User exists" });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    users[email] = {
+        password: hashed,
+        pro: false
+    };
+
+    res.json({ message: "User created" });
+});
+
+// =====================
+// 🔑 LOGIN
+// =====================
+app.post("/login", async (req, res) => {
+    const { email, password } = req.body;
+
+    const user = users[email];
+    if (!user) return res.json({ error: "User not found" });
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.json({ error: "Wrong password" });
+
+    const token = jwt.sign({ email }, JWT_SECRET);
+
+    res.json({ token });
 });
 
 // =====================
@@ -42,9 +119,12 @@ app.get("/cancel", (req, res) => {
 
 app.post("/create-subscription", async (req, res) => {
     try {
+        const { email } = req.body;
+
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ["card"],
             mode: "subscription",
+            customer_email: email,
             line_items: [{
                 price_data: {
                     currency: "usd",
@@ -68,28 +148,27 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// 🤖 AI REPLY (MEMORY + MODES + PRO LOCK)
+// 🤖 AI (MEMORY + MODES + PRO LOCK)
 // =====================
-app.post("/ai-reply", async (req, res) => {
+app.post("/ai-reply", auth, async (req, res) => {
     try {
         const text = req.body?.text;
-        const userId = req.body?.userId || "default";
         const mode = req.body?.mode || "normal";
-        const isPro = req.body?.pro === true;
+        const email = req.user.email;
+        const user = users[email];
 
         if (!text) {
-            return res.json({ reply: "Send text to chat 🤖" });
+            return res.json({ reply: "Send text 🤖" });
         }
 
-        // init memory
-        if (!conversations[userId]) {
-            conversations[userId] = [];
+        if (!conversations[email]) {
+            conversations[email] = [];
         }
 
         // 🔒 FREE LIMIT
-        if (!isPro && conversations[userId].length > 6) {
+        if (!user.pro && conversations[email].length > 6) {
             return res.json({
-                reply: "🔒 Upgrade to Pro for unlimited AI access"
+                reply: "🔒 Upgrade to Pro for unlimited AI"
             });
         }
 
@@ -97,18 +176,16 @@ app.post("/ai-reply", async (req, res) => {
         let systemPrompt = "You are a helpful AI assistant.";
 
         if (mode === "flirt") {
-            systemPrompt = "You are a charming, flirty, human-like assistant.";
+            systemPrompt = "You are a smooth, human-like flirty assistant.";
         } else if (mode === "business") {
             systemPrompt = "You are a professional business assistant.";
         }
 
-        // store user message
-        conversations[userId].push({
+        conversations[email].push({
             role: "user",
             content: text
         });
 
-        // call AI (NO node-fetch needed)
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -119,17 +196,15 @@ app.post("/ai-reply", async (req, res) => {
                 model: "gpt-4o-mini",
                 messages: [
                     { role: "system", content: systemPrompt },
-                    ...conversations[userId]
+                    ...conversations[email]
                 ]
             })
         });
 
         const data = await response.json();
-
         const reply = data?.choices?.[0]?.message?.content || "No response";
 
-        // store AI reply
-        conversations[userId].push({
+        conversations[email].push({
             role: "assistant",
             content: reply
         });
@@ -145,53 +220,10 @@ app.post("/ai-reply", async (req, res) => {
 });
 
 // =====================
-// 💘 FLIRT AI (LIGHTWEIGHT)
-// =====================
-app.post("/flirt", (req, res) => {
-    const text = (req.body?.text || "").toLowerCase();
-
-    let reply = "You just made my day 😊";
-
-    if (text.includes("hi") || text.includes("hello")) {
-        reply = "Hey you 😏 I was hoping you'd text";
-    } else if (text.includes("miss")) {
-        reply = "I might miss you a little more 😉";
-    } else if (text.includes("love")) {
-        reply = "Careful... you're making me blush 😳";
-    }
-
-    res.json({ reply });
-});
-
-// =====================
-// 🌍 TRANSLATE (PLACEHOLDER)
+// 🌍 TRANSLATE
 // =====================
 app.post("/translate", (req, res) => {
     const text = req.body?.text || "";
-
-    if (!text) {
-        return res.json({ translated: "No text provided" });
-    }
-
-    res.json({ translated: "[EN] " + text });
-});
-
-// =====================
-// 🌐 BROWSER TEST ROUTES
-// =====================
-app.get("/ai-reply-test", (req, res) => {
-    const text = (req.query.text || "").toLowerCase();
-
-    if (!text) {
-        return res.json({ reply: "Add ?text=hello 🤖" });
-    }
-
-    res.json({ reply: "Test response: " + text });
-});
-
-app.get("/translate-test", (req, res) => {
-    const text = req.query.text || "";
-
     res.json({ translated: "[EN] " + text });
 });
 
