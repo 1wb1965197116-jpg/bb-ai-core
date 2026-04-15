@@ -3,39 +3,57 @@ const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const cron = require("node-cron");
+
 const { User, Chat } = require("./db");
 
+// Node fetch fix (IMPORTANT)
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
 const app = express();
-const JWT_SECRET = process.env.JWT_SECRET;
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // =====================
-// ⚠️ STRIPE WEBHOOK (MUST BE FIRST)
+// MEMORY (auto agents)
 // =====================
-app.post("/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    const event = JSON.parse(req.body.toString());
+let agents = [];
 
-    if (event.type === "checkout.session.completed") {
-      const email = event.data.object.customer_email;
+// =====================
+// STRIPE WEBHOOK (MUST BE FIRST)
+// =====================
+app.post(
+  "/stripe-webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const event = JSON.parse(req.body.toString());
 
-      await User.findOneAndUpdate({ email }, { pro: true });
+      if (event.type === "checkout.session.completed") {
+        const email = event.data.object.customer_email;
 
-      console.log("🔥 PRO UNLOCKED:", email);
+        await User.findOneAndUpdate({ email }, { pro: true });
+
+        console.log("🔥 PRO UNLOCKED:", email);
+      }
+
+      res.json({ received: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
-
-    res.json({ received: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+);
 
+// =====================
+// MIDDLEWARE
 // =====================
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
 // =====================
-// AUTH
+// AUTH MIDDLEWARE
 // =====================
 function auth(req, res, next) {
   try {
@@ -48,7 +66,18 @@ function auth(req, res, next) {
 }
 
 // =====================
-// REGISTER
+// TEST
+// =====================
+app.get("/", (req, res) => {
+  res.send("BB AI CORE RUNNING 🚀");
+});
+
+app.get("/test", (req, res) => {
+  res.json({ status: "OK", message: "API working" });
+});
+
+// =====================
+// AUTH ROUTES
 // =====================
 app.post("/register", async (req, res) => {
   try {
@@ -56,7 +85,11 @@ app.post("/register", async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
 
-    await User.create({ email, password: hashed });
+    await User.create({
+      email,
+      password: hashed,
+      pro: false,
+    });
 
     res.json({ message: "User created" });
   } catch (err) {
@@ -64,9 +97,6 @@ app.post("/register", async (req, res) => {
   }
 });
 
-// =====================
-// LOGIN
-// =====================
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -96,17 +126,19 @@ app.post("/create-subscription", async (req, res) => {
       payment_method_types: ["card"],
       mode: "subscription",
       customer_email: email,
-      line_items: [{
-        price_data: {
-          currency: "usd",
-          product_data: { name: "BB AI Pro" },
-          unit_amount: 999,
-          recurring: { interval: "month" }
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: { name: "BB AI Pro" },
+            unit_amount: 999,
+            recurring: { interval: "month" },
+          },
+          quantity: 1,
         },
-        quantity: 1
-      }],
+      ],
       success_url: "https://bb-ai-core.onrender.com/success",
-      cancel_url: "https://bb-ai-core.onrender.com/cancel"
+      cancel_url: "https://bb-ai-core.onrender.com/cancel",
     });
 
     res.json({ url: session.url });
@@ -115,8 +147,48 @@ app.post("/create-subscription", async (req, res) => {
   }
 });
 
+app.get("/success", (req, res) => {
+  res.send("Payment successful 🎉 Pro unlocked soon.");
+});
+
+app.get("/cancel", (req, res) => {
+  res.send("Payment cancelled");
+});
+
 // =====================
-// 🤖 AI WITH MEMORY (PRO)
+// PUBLIC AI
+// =====================
+app.post("/ai-reply-public", async (req, res) => {
+  try {
+    const text = req.body?.text || "";
+
+    const response = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: text }],
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    res.json({
+      reply: data?.choices?.[0]?.message?.content || "No response",
+    });
+  } catch (err) {
+    res.json({ reply: "Error: " + err.message });
+  }
+});
+
+// =====================
+// PRO AI (MEMORY)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
   try {
@@ -132,133 +204,103 @@ app.post("/ai-reply", auth, async (req, res) => {
 
     chat.messages.push({ role: "user", content: text });
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: chat.messages
-      })
-    });
+    const response = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: chat.messages,
+        }),
+      }
+    );
 
     const data = await response.json();
 
-    const reply = data?.choices?.[0]?.message?.content || "No response";
+    const reply =
+      data?.choices?.[0]?.message?.content || "No response";
 
     chat.messages.push({ role: "assistant", content: reply });
+
     await chat.save();
 
     res.json({ reply });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // =====================
-// 🌐 PUBLIC AI
+// AGENTS
 // =====================
-app.post("/ai-reply-public", async (req, res) => {
-  try {
-    const text = req.body?.text || "";
+app.post("/agent/create", auth, (req, res) => {
+  const { type, prompt } = req.body;
+  const email = req.user.email;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: text }]
-      })
-    });
-
-    const data = await response.json();
-
-    res.json({
-      reply: data?.choices?.[0]?.message?.content || "No response"
-    });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =====================
-// 💰 AI AGENTS
-// =====================
-async function runAgent(system, userInput) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userInput }
-      ]
-    })
+  agents.push({
+    id: Date.now(),
+    email,
+    type,
+    prompt,
   });
 
-  const data = await response.json();
-  return data?.choices?.[0]?.message?.content;
-}
-
-app.post("/agent/business", async (req, res) => {
-  try {
-    const result = await runAgent(
-      "You generate profitable online business ideas with steps.",
-      req.body.idea || "Give me a business idea"
-    );
-
-    res.json({ result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ message: "Agent created" });
 });
 
-app.post("/agent/email", async (req, res) => {
-  try {
-    const result = await runAgent(
-      "You write high-converting business emails.",
-      req.body.prompt
-    );
+// =====================
+// AUTO RUN AGENTS
+// =====================
+cron.schedule("* * * * *", async () => {
+  console.log("⏱ Running agents...");
 
-    res.json({ result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  for (let agent of agents) {
+    try {
+      let system = "You are a helpful AI.";
 
-app.post("/agent/money", async (req, res) => {
-  try {
-    const result = await runAgent(
-      "You generate ways to make money online with steps.",
-      req.body.niche || "Make money online"
-    );
+      if (agent.type === "business")
+        system = "Generate business ideas.";
+      if (agent.type === "money")
+        system = "Generate ways to make money.";
+      if (agent.type === "email")
+        system = "Write business emails.";
 
-    res.json({ result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: agent.prompt || "Run task" },
+            ],
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      console.log(
+        "🤖 Agent:",
+        data?.choices?.[0]?.message?.content
+      );
+    } catch (err) {
+      console.error("Agent error:", err.message);
+    }
   }
 });
 
 // =====================
-app.get("/", (req, res) => {
-  res.send("BB AI PRO LIVE 🚀");
-});
-
+// START SERVER
 // =====================
-// 🚀 START SERVER (LAST LINE)
-// =====================
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
