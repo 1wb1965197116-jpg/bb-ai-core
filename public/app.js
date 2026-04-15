@@ -1,71 +1,109 @@
+const API = "https://bb-ai-core.onrender.com";
+
+// =====================
+// 💳 STRIPE UPGRADE
+// =====================
 async function upgrade() {
   const email = prompt("Enter your email");
 
-  const res = await fetch("/create-subscription", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ email })
-  });
+  if (!email) return;
 
-  const data = await res.json();
-  window.location.href = data.url;
-}
-async function send() {
-    const input = document.getElementById("text");
-    const text = input.value.trim();
+  try {
+    const res = await fetch(`${API}/create-subscription`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ email })
+    });
 
-    if (!text) return;
+    const data = await res.json();
 
-    input.value = "";
-
-    addMessage("user", text);
-
-    addMessage("ai", "Typing...");
-
-    try {
-        const res = await fetch("/ai-reply-public", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ text })
-        });
-
-        const data = await res.json();
-
-        removeLastMessage();
-
-        addMessage("ai", data.reply || "No response");
-    } catch (err) {
-        removeLastMessage();
-        addMessage("ai", "Error connecting to server");
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      alert("Error creating payment");
     }
+  } catch (err) {
+    alert("Payment error");
+  }
 }
 
+// =====================
+// 🤖 AI CHAT
+// =====================
+async function send() {
+  const input = document.getElementById("text");
+  const text = input.value.trim();
+
+  if (!text) return;
+
+  input.value = "";
+
+  addMessage("user", text);
+  addMessage("ai", "Typing...");
+
+  try {
+    const res = await fetch(`${API}/ai-reply-public`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text })
+    });
+
+    const data = await res.json();
+
+    removeLastMessage();
+
+    addMessage("ai", data.reply || "No response");
+
+  } catch (err) {
+    removeLastMessage();
+    addMessage("ai", "Server error");
+  }
+}
+
+// =====================
+// 💬 UI HELPERS
+// =====================
 function addMessage(role, text) {
-    const chat = document.getElementById("chat");
+  const chat = document.getElementById("chat");
 
-    const div = document.createElement("div");
-    div.className = "msg " + role;
-    div.innerText = text;
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.innerText = text;
 
-    chat.appendChild(div);
-
-    chat.scrollTop = chat.scrollHeight;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
 }
 
 function removeLastMessage() {
-    const chat = document.getElementById("chat");
-    const msgs = chat.getElementsByClassName("msg");
+  const chat = document.getElementById("chat");
+  const msgs = chat.getElementsByClassName("msg");
 
-    if (msgs.length > 0) {
-        chat.removeChild(msgs[msgs.length - 1]);
-    }
+  if (msgs.length > 0) {
+    chat.removeChild(msgs[msgs.length - 1]);
+  }
 }
+
+// =====================
+// 🎤 VOICE INPUT (SAFE)
+// =====================
 function startVoice() {
+  if (!('webkitSpeechRecognition' in window)) {
+    alert("Voice not supported on this device");
+    return;
+  }
+
   const recognition = new webkitSpeechRecognition();
+
   recognition.onresult = (event) => {
-    document.getElementById("text").value = event.results[0][0].transcript;
+    document.getElementById("text").value =
+      event.results[0][0].transcript;
   };
+
+  recognition.onerror = () => {
+    alert("Voice recognition error");
+  };
+
   recognition.start();
 }
