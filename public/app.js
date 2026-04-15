@@ -50,3 +50,10 @@ function removeLastMessage() {
         chat.removeChild(msgs[msgs.length - 1]);
     }
 }
+function startVoice() {
+  const recognition = new webkitSpeechRecognition();
+  recognition.onresult = (event) => {
+    document.getElementById("text").value = event.results[0][0].transcript;
+  };
+  recognition.start();
+}
