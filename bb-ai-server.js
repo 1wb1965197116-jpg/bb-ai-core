@@ -1,7 +1,13 @@
 const express = require("express");
 const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
+const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+
+// simple DB (upgrade later to real DB)
+let users = {};
 const app = express();
 
 // =====================
