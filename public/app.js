@@ -1,3 +1,15 @@
+async function upgrade() {
+  const email = prompt("Enter your email");
+
+  const res = await fetch("/create-subscription", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ email })
+  });
+
+  const data = await res.json();
+  window.location.href = data.url;
+}
 async function send() {
     const input = document.getElementById("text");
     const text = input.value.trim();
