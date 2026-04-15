@@ -4,12 +4,15 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+// IMPORTANT: Node 18+ has built-in fetch
+const fetch = globalThis.fetch;
+
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // =====================
-// MEMORY STORE
+// MEMORY STORE (TEMP DB)
 // =====================
 let users = {};
 let conversations = {};
@@ -29,7 +32,7 @@ app.get("/test", (req, res) => {
 });
 
 // =====================
-// AUTH MIDDLEWARE (FOR PRO ROUTES)
+// AUTH MIDDLEWARE
 // =====================
 function auth(req, res, next) {
     try {
@@ -116,8 +119,11 @@ app.post("/create-subscription", async (req, res) => {
     }
 });
 
+// =====================
+// STRIPE PAGES
+// =====================
 app.get("/success", (req, res) => {
-    res.send("Payment successful 🎉");
+    res.send("Payment successful 🎉 You now have AI Pro access");
 });
 
 app.get("/cancel", (req, res) => {
@@ -125,7 +131,7 @@ app.get("/cancel", (req, res) => {
 });
 
 // =====================
-// 🧠 PUBLIC AI (NO LOGIN - FOR FRONTEND TESTING)
+// 🧠 PUBLIC AI (NO LOGIN)
 // =====================
 app.post("/ai-reply-public", async (req, res) => {
     try {
@@ -158,7 +164,7 @@ app.post("/ai-reply-public", async (req, res) => {
 });
 
 // =====================
-// 🔐 PRO AI (LOGIN REQUIRED + MEMORY)
+// 🔐 PRO AI (LOGIN + MEMORY)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
     try {
@@ -204,7 +210,8 @@ app.post("/ai-reply", auth, async (req, res) => {
 
         const data = await response.json();
 
-        const reply = data?.choices?.[0]?.message?.content || "No response";
+        const reply =
+            data?.choices?.[0]?.message?.content || "No response";
 
         conversations[email].push({
             role: "assistant",
