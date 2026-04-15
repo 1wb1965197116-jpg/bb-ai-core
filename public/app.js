@@ -1,24 +1,52 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>BB AI Chat</title>
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
+async function send() {
+    const input = document.getElementById("text");
+    const text = input.value.trim();
 
-<div id="login">
-  <input id="email" placeholder="email">
-  <input id="password" type="password" placeholder="password">
-  <button onclick="login()">Login</button>
-  <button onclick="register()">Register</button>
-</div>
+    if (!text) return;
 
-<div id="chatUI" style="display:none;">
-  <div id="chat"></div>
-  <input id="text" placeholder="message..." />
-  <button onclick="send()">Send</button>
-</div>
+    input.value = "";
 
-<script src="app.js"></script>
-</body>
-</html>
+    addMessage("user", text);
+
+    addMessage("ai", "Typing...");
+
+    try {
+        const res = await fetch("/ai-reply-public", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ text })
+        });
+
+        const data = await res.json();
+
+        removeLastMessage();
+
+        addMessage("ai", data.reply || "No response");
+    } catch (err) {
+        removeLastMessage();
+        addMessage("ai", "Error connecting to server");
+    }
+}
+
+function addMessage(role, text) {
+    const chat = document.getElementById("chat");
+
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    div.innerText = text;
+
+    chat.appendChild(div);
+
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function removeLastMessage() {
+    const chat = document.getElementById("chat");
+    const msgs = chat.getElementsByClassName("msg");
+
+    if (msgs.length > 0) {
+        chat.removeChild(msgs[msgs.length - 1]);
+    }
+}
