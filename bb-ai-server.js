@@ -3,14 +3,13 @@ const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const fetch = globalThis.fetch;
 
 const app = express();
-
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // =====================
-// IN-MEMORY DATABASE
+// MEMORY DATABASE (TEMP)
 // =====================
 let users = {};
 let conversations = {};
@@ -42,8 +41,8 @@ function auth(req, res, next) {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded;
         next();
-    } catch {
-        res.status(401).json({ error: "Unauthorized" });
+    } catch (err) {
+        return res.status(401).json({ error: "Unauthorized" });
     }
 }
 
@@ -54,16 +53,17 @@ app.post("/register", async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-        return res.json({ error: "Missing fields" });
+        return res.json({ error: "Missing email or password" });
     }
 
     if (users[email]) {
-        return res.json({ error: "User exists" });
+        return res.json({ error: "User already exists" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
 
     users[email] = {
+        email,
         password: hashed,
         pro: false
     };
@@ -121,9 +121,6 @@ app.post("/create-subscription", async (req, res) => {
     }
 });
 
-// =====================
-// STRIPE STATUS PAGES
-// =====================
 app.get("/success", (req, res) => {
     res.send("Payment successful 🎉 You now have AI Pro access");
 });
@@ -166,12 +163,12 @@ app.post("/ai-reply-public", async (req, res) => {
 });
 
 // =====================
-// PRO AI (LOGIN + MEMORY)
+// PRO AI (LOGIN + MEMORY + LIMITS)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
     try {
-        const email = req.user.email;
         const text = req.body?.text;
+        const email = req.user.email;
 
         if (!text) {
             return res.json({ reply: "Send text 🤖" });
@@ -186,14 +183,11 @@ app.post("/ai-reply", auth, async (req, res) => {
         // FREE LIMIT
         if (!user?.pro && conversations[email].length > 6) {
             return res.json({
-                reply: "🔒 Upgrade to Pro for unlimited AI"
+                reply: "🔒 Upgrade to Pro for unlimited AI access"
             });
         }
 
-        conversations[email].push({
-            role: "user",
-            content: text
-        });
+        conversations[email].push({ role: "user", content: text });
 
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
@@ -203,19 +197,18 @@ app.post("/ai-reply", auth, async (req, res) => {
             },
             body: JSON.stringify({
                 model: "gpt-4o-mini",
-                messages: conversations[email]
+                messages: [
+                    { role: "system", content: "You are a helpful AI assistant." },
+                    ...conversations[email]
+                ]
             })
         });
 
         const data = await response.json();
 
-        const reply =
-            data?.choices?.[0]?.message?.content || "No response";
+        const reply = data?.choices?.[0]?.message?.content || "No response";
 
-        conversations[email].push({
-            role: "assistant",
-            content: reply
-        });
+        conversations[email].push({ role: "assistant", content: reply });
 
         res.json({ reply });
 
@@ -225,7 +218,7 @@ app.post("/ai-reply", auth, async (req, res) => {
 });
 
 // =====================
-// TRANSLATE (SIMPLE)
+// TRANSLATE
 // =====================
 app.post("/translate", (req, res) => {
     const text = req.body?.text || "";
@@ -235,8 +228,6 @@ app.post("/translate", (req, res) => {
 // =====================
 // START SERVER
 // =====================
-const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
     console.log(`BB AI Core running on port ${PORT}`);
 });
