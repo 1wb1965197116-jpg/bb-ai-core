@@ -1,3 +1,6 @@
+const API_BASE = "https://bb-ai-core.onrender.com"; 
+// change to "" if running locally
+
 async function send() {
   const input = document.getElementById("text");
   const text = input.value;
@@ -5,17 +8,27 @@ async function send() {
 
   addMessage("user", text);
 
-  const res = await fetch("/ai-reply", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
-  });
+  try {
+    const res = await fetch(`${API_BASE}/ai-reply-public`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text })
+    });
 
-  const data = await res.json();
+    const data = await res.json();
 
-  addMessage("ai", data.reply);
+    addMessage("ai", data.reply || "No response");
+
+  } catch (err) {
+    addMessage("ai", "Error connecting to server");
+  }
 }
 
+// =====================
+// CHAT UI
+// =====================
 function addMessage(role, text) {
   const chat = document.getElementById("chat");
 
