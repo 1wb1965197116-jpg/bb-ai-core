@@ -12,10 +12,8 @@ app.use(express.json());
 app.use(express.static("public"));
 // =====================
 // 🧠 HEALTH CHECK
-// =====================
-app.get("/", (req, res) => {
-    res.send("BB AI Core Running 🚀");
-});
+// =================
+
 
 // =====================
 // 🧪 TEST ROUTE
