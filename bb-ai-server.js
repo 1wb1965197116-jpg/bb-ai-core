@@ -1,18 +1,25 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
+
+const { User, Chat } = require("./db");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // =====================
-// MEMORY DATABASE (TEMP)
+// CONNECT DB
 // =====================
-let users = {};
-let conversations = {};
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log("MongoDB connected"))
+    .catch(err => console.log(err));
 
 // =====================
 // MIDDLEWARE
@@ -22,27 +29,15 @@ app.use(express.json());
 app.use(express.static("public"));
 
 // =====================
-// HEALTH CHECK
-// =====================
-app.get("/", (req, res) => {
-    res.send("BB AI Core Running 🚀");
-});
-
-app.get("/test", (req, res) => {
-    res.json({ status: "OK", message: "API is working" });
-});
-
-// =====================
-// AUTH MIDDLEWARE
+// AUTH
 // =====================
 function auth(req, res, next) {
     try {
         const token = req.headers.authorization?.split(" ")[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded;
+        req.user = jwt.verify(token, JWT_SECRET);
         next();
-    } catch (err) {
-        return res.status(401).json({ error: "Unauthorized" });
+    } catch {
+        res.status(401).json({ error: "Unauthorized" });
     }
 }
 
@@ -52,21 +47,16 @@ function auth(req, res, next) {
 app.post("/register", async (req, res) => {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-        return res.json({ error: "Missing email or password" });
-    }
-
-    if (users[email]) {
-        return res.json({ error: "User already exists" });
-    }
+    const exists = await User.findOne({ email });
+    if (exists) return res.json({ error: "User exists" });
 
     const hashed = await bcrypt.hash(password, 10);
 
-    users[email] = {
+    await User.create({
         email,
         password: hashed,
         pro: false
-    };
+    });
 
     res.json({ message: "User created" });
 });
@@ -77,11 +67,11 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
-    const user = users[email];
+    const user = await User.findOne({ email });
     if (!user) return res.json({ error: "User not found" });
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.json({ error: "Wrong password" });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.json({ error: "Wrong password" });
 
     const token = jwt.sign({ email }, JWT_SECRET);
 
@@ -92,102 +82,69 @@ app.post("/login", async (req, res) => {
 // STRIPE CHECKOUT
 // =====================
 app.post("/create-subscription", async (req, res) => {
-    try {
-        const { email } = req.body;
+    const { email } = req.body;
 
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ["card"],
-            mode: "subscription",
-            customer_email: email,
-            line_items: [{
-                price_data: {
-                    currency: "usd",
-                    product_data: {
-                        name: "BB AI Pro"
-                    },
-                    unit_amount: 999,
-                    recurring: { interval: "month" }
-                },
-                quantity: 1
-            }],
-            success_url: "https://bb-ai-core.onrender.com/success",
-            cancel_url: "https://bb-ai-core.onrender.com/cancel"
-        });
-
-        res.json({ url: session.url });
-
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.get("/success", (req, res) => {
-    res.send("Payment successful 🎉 You now have AI Pro access");
-});
-
-app.get("/cancel", (req, res) => {
-    res.send("Payment cancelled");
-});
-
-// =====================
-// PUBLIC AI (NO LOGIN)
-// =====================
-app.post("/ai-reply-public", async (req, res) => {
-    try {
-        const text = req.body?.text || "";
-
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+    const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        mode: "subscription",
+        customer_email: email,
+        line_items: [{
+            price_data: {
+                currency: "usd",
+                product_data: { name: "BB AI Pro" },
+                unit_amount: 999,
+                recurring: { interval: "month" }
             },
-            body: JSON.stringify({
-                model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: "You are a helpful AI assistant." },
-                    { role: "user", content: text }
-                ]
-            })
-        });
+            quantity: 1
+        }],
+        success_url: "https://bb-ai-core.onrender.com/success",
+        cancel_url: "https://bb-ai-core.onrender.com/cancel"
+    });
 
-        const data = await response.json();
-
-        res.json({
-            reply: data?.choices?.[0]?.message?.content || "No response"
-        });
-
-    } catch (err) {
-        res.json({ reply: "AI error: " + err.message });
-    }
+    res.json({ url: session.url });
 });
 
 // =====================
-// PRO AI (LOGIN + MEMORY + LIMITS)
+// STRIPE WEBHOOK (AUTO PRO UNLOCK)
+// =====================
+app.post("/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const event = JSON.parse(req.body);
+
+    if (event.type === "checkout.session.completed") {
+        const email = event.data.object.customer_email;
+
+        await User.findOneAndUpdate(
+            { email },
+            { pro: true }
+        );
+
+        console.log("🔥 PRO UNLOCKED:", email);
+    }
+
+    res.json({ received: true });
+});
+
+// =====================
+// AI CHAT (PRO + MEMORY)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
     try {
-        const text = req.body?.text;
+        const { text } = req.body;
         const email = req.user.email;
 
-        if (!text) {
-            return res.json({ reply: "Send text 🤖" });
+        let chat = await Chat.findOne({ email });
+
+        if (!chat) {
+            chat = new Chat({ email, messages: [] });
         }
 
-        if (!conversations[email]) {
-            conversations[email] = [];
+        const user = await User.findOne({ email });
+
+        if (!user.pro && chat.messages.length > 6) {
+            return res.json({ reply: "🔒 Upgrade to Pro" });
         }
 
-        const user = users[email];
-
-        // FREE LIMIT
-        if (!user?.pro && conversations[email].length > 6) {
-            return res.json({
-                reply: "🔒 Upgrade to Pro for unlimited AI access"
-            });
-        }
-
-        conversations[email].push({ role: "user", content: text });
+        chat.messages.push({ role: "user", content: text });
 
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
@@ -197,18 +154,16 @@ app.post("/ai-reply", auth, async (req, res) => {
             },
             body: JSON.stringify({
                 model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: "You are a helpful AI assistant." },
-                    ...conversations[email]
-                ]
+                messages: chat.messages
             })
         });
 
         const data = await response.json();
-
         const reply = data?.choices?.[0]?.message?.content || "No response";
 
-        conversations[email].push({ role: "assistant", content: reply });
+        chat.messages.push({ role: "assistant", content: reply });
+
+        await chat.save();
 
         res.json({ reply });
 
@@ -218,16 +173,8 @@ app.post("/ai-reply", auth, async (req, res) => {
 });
 
 // =====================
-// TRANSLATE
-// =====================
-app.post("/translate", (req, res) => {
-    const text = req.body?.text || "";
-    res.json({ translated: "[EN] " + text });
-});
-
-// =====================
 // START SERVER
 // =====================
 app.listen(PORT, () => {
-    console.log(`BB AI Core running on port ${PORT}`);
+    console.log(`BB AI SaaS running on port ${PORT}`);
 });
