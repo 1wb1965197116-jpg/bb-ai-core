@@ -1,41 +1,24 @@
-const API_BASE = "https://bb-ai-core.onrender.com"; 
-// change to "" if running locally
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BB AI Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-async function send() {
-  const input = document.getElementById("text");
-  const text = input.value;
-  input.value = "";
+<div id="login">
+  <input id="email" placeholder="email">
+  <input id="password" type="password" placeholder="password">
+  <button onclick="login()">Login</button>
+  <button onclick="register()">Register</button>
+</div>
 
-  addMessage("user", text);
+<div id="chatUI" style="display:none;">
+  <div id="chat"></div>
+  <input id="text" placeholder="message..." />
+  <button onclick="send()">Send</button>
+</div>
 
-  try {
-    const res = await fetch(`${API_BASE}/ai-reply-public`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ text })
-    });
-
-    const data = await res.json();
-
-    addMessage("ai", data.reply || "No response");
-
-  } catch (err) {
-    addMessage("ai", "Error connecting to server");
-  }
-}
-
-// =====================
-// CHAT UI
-// =====================
-function addMessage(role, text) {
-  const chat = document.getElementById("chat");
-
-  const div = document.createElement("div");
-  div.className = "msg " + role;
-  div.innerText = text;
-
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
+<script src="app.js"></script>
+</body>
+</html>
