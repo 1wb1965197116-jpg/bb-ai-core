@@ -2,137 +2,152 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>BB AI Test Dashboard</title>
+<title>BB AI Chat</title>
+
 <style>
-    body {
-        font-family: Arial;
-        background: #0f172a;
-        color: white;
-        padding: 20px;
-    }
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #343541;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
 
-    input, button {
-        padding: 10px;
-        margin: 5px;
-        width: 300px;
-        border-radius: 8px;
-        border: none;
-    }
+.header {
+    padding: 15px;
+    background: #202123;
+    text-align: center;
+    font-size: 20px;
+    font-weight: bold;
+}
 
-    button {
-        cursor: pointer;
-        background: #3b82f6;
-        color: white;
-    }
+.chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
 
-    .box {
-        margin-bottom: 20px;
-        padding: 15px;
-        background: #1e293b;
-        border-radius: 10px;
-    }
+.message {
+    max-width: 70%;
+    padding: 12px;
+    margin: 10px 0;
+    border-radius: 10px;
+    line-height: 1.4;
+}
 
-    pre {
-        background: #000;
-        padding: 10px;
-        border-radius: 8px;
-        overflow-x: auto;
-    }
+.user {
+    background: #2563eb;
+    align-self: flex-end;
+    margin-left: auto;
+}
+
+.ai {
+    background: #444654;
+    align-self: flex-start;
+}
+
+.input-bar {
+    display: flex;
+    padding: 10px;
+    background: #202123;
+}
+
+input {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+}
+
+button {
+    margin-left: 10px;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #10a37f;
+    color: white;
+    cursor: pointer;
+}
 </style>
 </head>
+
 <body>
 
-<h1>🚀 BB AI Test Dashboard</h1>
+<div class="header">🤖 BB AI Chat</div>
 
-<!-- AI REPLY -->
-<div class="box">
-<h2>🤖 AI Reply</h2>
-<input id="aiText" placeholder="Type message..." />
-<button onclick="testAI()">Send</button>
-<pre id="aiOut"></pre>
-</div>
+<div id="chat" class="chat"></div>
 
-<!-- FLIRT -->
-<div class="box">
-<h2>💘 Flirt AI</h2>
-<input id="flirtText" placeholder="Type flirt text..." />
-<button onclick="testFlirt()">Send</button>
-<pre id="flirtOut"></pre>
-</div>
-
-<!-- TRANSLATE -->
-<div class="box">
-<h2>🌍 Translate</h2>
-<input id="transText" placeholder="Type text..." />
-<button onclick="testTranslate()">Translate</button>
-<pre id="transOut"></pre>
-</div>
-
-<!-- STRIPE -->
-<div class="box">
-<h2>💰 Stripe Subscription</h2>
-<button onclick="buy()">Buy Pro</button>
+<div class="input-bar">
+    <input id="input" placeholder="Send a message..." />
+    <button onclick="send()">Send</button>
 </div>
 
 <script>
-const BASE = window.location.origin;
+const chat = document.getElementById("chat");
 
-// 🤖 AI
-async function testAI() {
-    const text = document.getElementById("aiText").value;
-
-    const res = await fetch(BASE + "/ai-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
-    });
-
-    const data = await res.json();
-    document.getElementById("aiOut").innerText = JSON.stringify(data, null, 2);
+function addMessage(text, type) {
+    const div = document.createElement("div");
+    div.className = "message " + type;
+    div.innerText = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
 }
 
-// 💘 Flirt
-async function testFlirt() {
-    const text = document.getElementById("flirtText").value;
+// fake typing effect
+function typeMessage(text) {
+    const div = document.createElement("div");
+    div.className = "message ai";
+    chat.appendChild(div);
 
-    const res = await fetch(BASE + "/flirt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
-    });
+    let i = 0;
+    const interval = setInterval(() => {
+        div.innerText += text[i];
+        i++;
+        chat.scrollTop = chat.scrollHeight;
 
-    const data = await res.json();
-    document.getElementById("flirtOut").innerText = JSON.stringify(data, null, 2);
+        if (i >= text.length) clearInterval(interval);
+    }, 15);
 }
 
-// 🌍 Translate
-async function testTranslate() {
-    const text = document.getElementById("transText").value;
+async function send() {
+    const input = document.getElementById("input");
+    const text = input.value;
 
-    const res = await fetch(BASE + "/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
-    });
+    if (!text) return;
 
-    const data = await res.json();
-    document.getElementById("transOut").innerText = JSON.stringify(data, null, 2);
-}
+    addMessage(text, "user");
+    input.value = "";
 
-// 💰 Stripe
-async function buy() {
-    const res = await fetch(BASE + "/create-subscription", {
-        method: "POST"
-    });
+    // loading bubble
+    const loading = document.createElement("div");
+    loading.className = "message ai";
+    loading.innerText = "Typing...";
+    chat.appendChild(loading);
 
-    const data = await res.json();
+    try {
+        const res = await fetch("/ai-reply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
 
-    if (data.url) {
-        window.location.href = data.url;
-    } else {
-        alert("Error starting checkout");
+        const data = await res.json();
+
+        loading.remove();
+        typeMessage(data.reply || "No response");
+
+    } catch (err) {
+        loading.innerText = "Error connecting to AI";
     }
 }
+
+// ENTER key support
+document.getElementById("input").addEventListener("keypress", function(e) {
+    if (e.key === "Enter") send();
+});
 </script>
 
 </body>
