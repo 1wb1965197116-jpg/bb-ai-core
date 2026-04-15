@@ -1,16 +1,16 @@
 {
   "name": "bb-ai-core",
   "version": "1.0.0",
+  "description": "BB AI Core SaaS",
   "main": "bb-ai-server.js",
   "scripts": {
     "start": "node bb-ai-server.js"
   },
-  "dependencies{
-  "express": "^4.18.2",
-  "cors": "^2.8.5",
-  "stripe": "^16.0.0",
-  "bcryptjs": "^2.4.3",
-  "jsonwebtoken": "^9.0.0"
- {
- }
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "stripe": "^16.0.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.0"
+  }
 }
