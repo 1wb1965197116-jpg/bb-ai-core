@@ -1,17 +1,19 @@
 const mongoose = require("mongoose");
 
-mongoose.connect(process.env.MONGO_URL);
-
 const UserSchema = new mongoose.Schema({
-  email: String,
-  password: String,
-  pro: { type: Boolean, default: false },
-  stripeCustomerId: String
+    email: String,
+    password: String,
+    pro: { type: Boolean, default: false }
 });
 
 const ChatSchema = new mongoose.Schema({
-  email: String,
-  messages: Array
+    email: String,
+    messages: [
+        {
+            role: String,
+            content: String
+        }
+    ]
 });
 
 const User = mongoose.model("User", UserSchema);
