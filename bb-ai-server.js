@@ -8,20 +8,28 @@ const { User, Chat } = require("./db");
 const app = express();
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// ⚠️ Stripe webhook must come BEFORE json middleware
+// =====================
+// ⚠️ STRIPE WEBHOOK (MUST BE FIRST)
+// =====================
 app.post("/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  const event = JSON.parse(req.body);
+  try {
+    const event = JSON.parse(req.body.toString());
 
-  if (event.type === "checkout.session.completed") {
-    const email = event.data.object.customer_email;
+    if (event.type === "checkout.session.completed") {
+      const email = event.data.object.customer_email;
 
-    await User.findOneAndUpdate({ email }, { pro: true });
-    console.log("🔥 PRO UNLOCKED:", email);
+      await User.findOneAndUpdate({ email }, { pro: true });
+
+      console.log("🔥 PRO UNLOCKED:", email);
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  res.json({ received: true });
 });
 
+// =====================
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
@@ -43,106 +51,147 @@ function auth(req, res, next) {
 // REGISTER
 // =====================
 app.post("/register", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 10);
 
-  await User.create({
-    email,
-    password: hashed
-  });
+    await User.create({ email, password: hashed });
 
-  res.json({ message: "User created" });
+    res.json({ message: "User created" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =====================
 // LOGIN
 // =====================
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user) return res.json({ error: "User not found" });
+    const user = await User.findOne({ email });
+    if (!user) return res.json({ error: "User not found" });
 
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.json({ error: "Wrong password" });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.json({ error: "Wrong password" });
 
-  const token = jwt.sign({ email }, JWT_SECRET);
-  res.json({ token });
+    const token = jwt.sign({ email }, JWT_SECRET);
+
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =====================
 // STRIPE CHECKOUT
 // =====================
 app.post("/create-subscription", async (req, res) => {
-  const { email } = req.body;
+  try {
+    const { email } = req.body;
 
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ["card"],
-    mode: "subscription",
-    customer_email: email,
-    line_items: [{
-      price_data: {
-        currency: "usd",
-        product_data: { name: "BB AI Pro" },
-        unit_amount: 999,
-        recurring: { interval: "month" }
-      },
-      quantity: 1
-    }],
-    success_url: "https://bb-ai-core.onrender.com/success",
-    cancel_url: "https://bb-ai-core.onrender.com/cancel"
-  });
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "subscription",
+      customer_email: email,
+      line_items: [{
+        price_data: {
+          currency: "usd",
+          product_data: { name: "BB AI Pro" },
+          unit_amount: 999,
+          recurring: { interval: "month" }
+        },
+        quantity: 1
+      }],
+      success_url: "https://bb-ai-core.onrender.com/success",
+      cancel_url: "https://bb-ai-core.onrender.com/cancel"
+    });
 
-  res.json({ url: session.url });
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =====================
-// 🤖 AI WITH MEMORY
+// 🤖 AI WITH MEMORY (PRO)
 // =====================
 app.post("/ai-reply", auth, async (req, res) => {
-  const { text } = req.body;
-  const email = req.user.email;
+  try {
+    const { text } = req.body;
+    const email = req.user.email;
 
-  let chat = await Chat.findOne({ email });
+    if (!text) return res.json({ reply: "Send text 🤖" });
 
-  if (!chat) {
-    chat = new Chat({ email, messages: [] });
+    let chat = await Chat.findOne({ email });
+    if (!chat) chat = new Chat({ email, messages: [] });
+
+    if (chat.messages.length > 20) chat.messages.shift();
+
+    chat.messages.push({ role: "user", content: text });
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: chat.messages
+      })
+    });
+
+    const data = await response.json();
+
+    const reply = data?.choices?.[0]?.message?.content || "No response";
+
+    chat.messages.push({ role: "assistant", content: reply });
+    await chat.save();
+
+    res.json({ reply });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  if (chat.messages.length > 20) {
-    chat.messages.shift();
-  }
-
-  chat.messages.push({ role: "user", content: text });
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: chat.messages
-    })
-  });
-
-  const data = await response.json();
-  const reply = data.choices?.[0]?.message?.content;
-
-  chat.messages.push({ role: "assistant", content: reply });
-  await chat.save();
-
-  res.json({ reply });
 });
 
 // =====================
-// PUBLIC TEST AI
+// 🌐 PUBLIC AI
 // =====================
 app.post("/ai-reply-public", async (req, res) => {
-  const text = req.body?.text || "";
+  try {
+    const text = req.body?.text || "";
 
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: text }]
+      })
+    });
+
+    const data = await response.json();
+
+    res.json({
+      reply: data?.choices?.[0]?.message?.content || "No response"
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =====================
+// 💰 AI AGENTS
+// =====================
+async function runAgent(system, userInput) {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -151,15 +200,54 @@ app.post("/ai-reply-public", async (req, res) => {
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: text }]
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userInput }
+      ]
     })
   });
 
   const data = await response.json();
+  return data?.choices?.[0]?.message?.content;
+}
 
-  res.json({
-    reply: data?.choices?.[0]?.message?.content || "No response"
-  });
+app.post("/agent/business", async (req, res) => {
+  try {
+    const result = await runAgent(
+      "You generate profitable online business ideas with steps.",
+      req.body.idea || "Give me a business idea"
+    );
+
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/agent/email", async (req, res) => {
+  try {
+    const result = await runAgent(
+      "You write high-converting business emails.",
+      req.body.prompt
+    );
+
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/agent/money", async (req, res) => {
+  try {
+    const result = await runAgent(
+      "You generate ways to make money online with steps.",
+      req.body.niche || "Make money online"
+    );
+
+    res.json({ result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =====================
@@ -167,4 +255,10 @@ app.get("/", (req, res) => {
   res.send("BB AI PRO LIVE 🚀");
 });
 
-app.listen(process.env.PORT || 3000);
+// =====================
+// 🚀 START SERVER (LAST LINE)
+// =====================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
