@@ -6,7 +6,7 @@ const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 const mongoose = require("mongoose");
 
-const { connectDB, dbReady, dbState } = require("./db");
+const { connectDB, dbReady, dbMode } = require("./db");
 
 const User = require("./models/User");
 const Chat = require("./models/Chat");
@@ -20,28 +20,33 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// OFFLINE QUEUE SYSTEM
+// 🔥 ENTERPRISE CACHE (in-memory fallback)
 // =====================
-const offlineQueue = [];
+const cache = new Map();
 
-function queueJob(job) {
-  offlineQueue.push(job);
+// =====================
+// QUEUE SYSTEM
+// =====================
+const queue = [];
+
+function addToQueue(job) {
+  queue.push(job);
 }
 
 async function processQueue() {
-  if (mongoose.connection.readyState !== 1) return;
+  if (!dbReady()) return;
 
-  while (offlineQueue.length > 0) {
-    const job = offlineQueue.shift();
+  while (queue.length > 0) {
+    const job = queue.shift();
     try {
       await job();
     } catch (e) {
-      console.error("Queue job failed:", e.message);
+      console.error("Queue error:", e.message);
     }
   }
 }
 
-setInterval(processQueue, 5000);
+setInterval(processQueue, 4000);
 
 // =====================
 // DB INIT
@@ -55,7 +60,7 @@ setInterval(processQueue, 5000);
 // =====================
 app.use(cors());
 
-// Stripe webhook MUST be raw first
+// Stripe webhook raw FIRST
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -88,10 +93,10 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH
+// HEALTH (ENTERPRISE DASHBOARD)
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 AI OS FULL MERGED SYSTEM LIVE");
+  res.send("🚀 AI OS v5 ENTERPRISE SYSTEM ONLINE");
 });
 
 app.get("/health", (req, res) => {
@@ -100,15 +105,16 @@ app.get("/health", (req, res) => {
   res.json({
     status: "OK",
     server: "running",
-    db:
+    db: dbMode(),
+    mode:
       state === 1
-        ? "connected"
+        ? "online"
         : state === 2
         ? "connecting"
-        : "disconnected",
-    mode: state === 1 ? "online" : "offline",
+        : "offline",
     uptime: process.uptime(),
-    dbMeta: dbState(),
+    cacheSize: cache.size,
+    queueSize: queue.length,
   });
 });
 
@@ -152,28 +158,41 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI (SAFE MODE)
+// AI (CACHE + FALLBACK)
 // =====================
 app.post("/ai", async (req, res) => {
   try {
+    const key = req.body.text;
+
+    if (cache.has(key)) {
+      return res.json({
+        reply: cache.get(key),
+        cached: true,
+      });
+    }
+
     const reply = await askAI([
-      { role: "user", content: req.body.text },
+      { role: "user", content: key },
     ]);
+
+    cache.set(key, reply);
 
     res.json({ reply });
   } catch {
-    res.json({ reply: "⚠️ AI offline fallback active" });
+    res.json({
+      reply: "⚠️ AI fallback mode active",
+    });
   }
 });
 
 // =====================
-// AI PRO (DB SAFE + QUEUE READY)
+// AI PRO (ENTERPRISE SAFE)
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
     if (!dbReady()) {
       return res.json({
-        reply: "⚠️ Offline mode active. Your request will sync later.",
+        reply: "⚠️ System offline — request queued",
       });
     }
 
@@ -201,18 +220,19 @@ app.post("/ai-pro", auth, async (req, res) => {
     await chat.save();
 
     res.json({ reply });
-  } catch (err) {
-    res.json({ reply: "⚠️ AI Pro fallback mode active" });
+
+  } catch {
+    res.json({ reply: "⚠️ AI Pro fallback active" });
   }
 });
 
 // =====================
-// AGENT SYSTEM
+// AGENTS (QUEUE SAFE)
 // =====================
 app.post("/agent/create", auth, async (req, res) => {
   try {
     if (!dbReady()) {
-      queueJob(() =>
+      addToQueue(() =>
         Agent.create({
           userId: req.user.email,
           type: req.body.type,
@@ -220,9 +240,7 @@ app.post("/agent/create", auth, async (req, res) => {
         })
       );
 
-      return res.json({
-        message: "Agent queued (offline mode)",
-      });
+      return res.json({ message: "Queued (offline mode)" });
     }
 
     await Agent.create({
@@ -232,6 +250,7 @@ app.post("/agent/create", auth, async (req, res) => {
     });
 
     res.json({ message: "Agent created" });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -250,11 +269,12 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// CRON (SAFE)
+// CRON SAFE
 // =====================
 cron.schedule("* * * * *", async () => {
+  if (!dbReady()) return;
+
   try {
-    if (!dbReady()) return;
     await runAgents();
   } catch (err) {
     console.error("Agent error:", err.message);
@@ -262,8 +282,8 @@ cron.schedule("* * * * *", async () => {
 });
 
 // =====================
-// START SERVER
+// START
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 AI OS v5 Enterprise running on port ${PORT}`);
 });
