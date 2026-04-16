@@ -1,0 +1,19 @@
+<h1>Upgrade to Pro</h1>
+
+<button onclick="upgrade()">Subscribe</button>
+
+<script>
+async function upgrade() {
+  const email = prompt("Enter email");
+
+  const res = await fetch("/create-subscription", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email })
+  });
+
+  const data = await res.json();
+
+  window.location.href = data.url;
+}
+</script>
