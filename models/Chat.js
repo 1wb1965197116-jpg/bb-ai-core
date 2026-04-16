@@ -5,4 +5,4 @@ const ChatSchema = new mongoose.Schema({
   messages: Array
 });
 
-module.exports = mongoose.model("Chat", ChatSchema);
+module.exports = mongoose.models.Chat || mongoose.model("Chat", ChatSchema);
