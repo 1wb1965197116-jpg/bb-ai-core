@@ -2,52 +2,23 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const mongoose = require("mongoose");
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY || "");
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 const cron = require("node-cron");
 
-const { User, Chat } = require("./db");
+const { connectDB, User, Chat, Agent } = require("./db");
+
+connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
 // =====================
-// SAFE MONGO CONNECT
-// =====================
-async function connectDB() {
-  const uri = process.env.MONGO_URI;
-
-  if (!uri) {
-    console.error("❌ MONGO_URI missing in environment variables");
-    return;
-  }
-
-  try {
-    await mongoose.connect(uri);
-    console.log("✅ MongoDB Connected");
-  } catch (err) {
-    console.error("❌ MongoDB Connection Failed:", err.message);
-  }
-}
-
-connectDB();
-
-// =====================
 // MIDDLEWARE
 // =====================
 app.use(cors());
 app.use(express.json());
-app.use(express.static("public"));
-
-// =====================
-// HEALTH CHECK
-// =====================
-app.get("/", (req, res) => {
-  res.send("BB AI CORE RUNNING 🚀");
-});
 
 // =====================
 // AUTH
@@ -63,42 +34,106 @@ function auth(req, res, next) {
 }
 
 // =====================
-// AI ROUTE (SAFE)
+// HOME
 // =====================
-app.post("/ai-reply-public", async (req, res) => {
-  try {
-    const text = req.body?.text || "";
+app.get("/", (req, res) => {
+  res.send("BB AI SAAS RUNNING 🚀");
+});
 
-    if (!process.env.OPENAI_API_KEY) {
-      return res.json({ reply: "Missing OPENAI_API_KEY" });
-    }
+// =====================
+// REGISTER
+// =====================
+app.post("/register", async (req, res) => {
+  const { email, password } = req.body;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: text }]
-      })
-    });
+  const hashed = await bcrypt.hash(password, 10);
 
-    const data = await response.json();
+  await User.create({ email, password: hashed });
 
-    res.json({
-      reply: data?.choices?.[0]?.message?.content || "No response"
-    });
+  res.json({ message: "User created" });
+});
 
-  } catch (err) {
-    res.json({ reply: "AI Error: " + err.message });
+// =====================
+// LOGIN
+// =====================
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = await User.findOne({ email });
+  if (!user) return res.json({ error: "User not found" });
+
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) return res.json({ error: "Wrong password" });
+
+  const token = jwt.sign({ email }, JWT_SECRET);
+
+  res.json({ token });
+});
+
+// =====================
+// SIMPLE AI
+// =====================
+async function askAI(text) {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: text }]
+    })
+  });
+
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.content || "No response";
+}
+
+// =====================
+// PUBLIC AI
+// =====================
+app.post("/ai", async (req, res) => {
+  const reply = await askAI(req.body.text || "");
+  res.json({ reply });
+});
+
+// =====================
+// CREATE AGENT
+// =====================
+app.post("/agent/create", auth, async (req, res) => {
+  const { type, prompt } = req.body;
+
+  await Agent.create({
+    email: req.user.email,
+    type,
+    prompt
+  });
+
+  res.json({ message: "Agent created" });
+});
+
+// =====================
+// RUN AGENTS (AUTO)
+// =====================
+cron.schedule("* * * * *", async () => {
+  const agents = await Agent.find();
+
+  for (let a of agents) {
+    let prompt = a.prompt;
+
+    const result = await askAI(prompt);
+
+    a.lastRun = new Date();
+    await a.save();
+
+    console.log("🤖 Agent:", a.email, result);
   }
 });
 
 // =====================
-// START SERVER (LAST)
+// START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("Server running on", PORT);
 });
