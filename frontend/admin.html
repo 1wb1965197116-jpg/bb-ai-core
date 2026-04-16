@@ -1,0 +1,15 @@
+<h1>Admin Panel</h1>
+
+<div id="stats"></div>
+
+<button onclick="loadStats()">Load Stats</button>
+
+<script>
+async function loadStats() {
+  const res = await fetch("/health");
+  const data = await res.json();
+
+  document.getElementById("stats").innerText =
+    JSON.stringify(data, null, 2);
+}
+</script>
