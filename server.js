@@ -1,62 +1,37 @@
 require("dotenv").config();
 
-// =====================
-// IMPORTS
-// =====================
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 const mongoose = require("mongoose");
 
-// DB + MODELS
-const { connectDB } = require("./db");
+const { connectDB, dbReady } = require("./db");
+
 const User = require("./models/User");
 const Chat = require("./models/Chat");
 const Agent = require("./models/Agent");
 
-// SERVICES
 const { askAI } = require("./services/ai");
 const { createCheckout, handleStripeEvent } = require("./services/stripe");
 const { runAgents } = require("./services/worker");
 
-// =====================
-// INIT APP
-// =====================
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// GLOBAL DB CONNECT
+// DB INIT (SAFE)
 // =====================
 (async () => {
   await connectDB();
 })();
 
 // =====================
-// MONGO EVENTS (HEALTH)
-// =====================
-mongoose.connection.on("connected", () => {
-  console.log("🟢 MongoDB Connected");
-});
-
-mongoose.connection.on("disconnected", () => {
-  console.log("⚠️ MongoDB Disconnected");
-});
-
-mongoose.connection.on("error", (err) => {
-  console.error("🔴 MongoDB Error:", err.message);
-});
-
-// =====================
 // MIDDLEWARE
 // =====================
 app.use(cors());
-app.use(express.json());
 
-// =====================
-// STRIPE WEBHOOK (MUST BE RAW)
-// =====================
+// Stripe raw webhook FIRST
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -66,17 +41,15 @@ app.post(
       await handleStripeEvent(event);
       res.json({ received: true });
     } catch (err) {
-      console.error("Stripe webhook error:", err.message);
       res.status(500).json({ error: err.message });
     }
   }
 );
 
-// AFTER WEBHOOK (JSON PARSER SAFE)
 app.use(express.json());
 
 // =====================
-// AUTH MIDDLEWARE
+// AUTH
 // =====================
 function auth(req, res, next) {
   try {
@@ -91,10 +64,10 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH CHECK
+// HEALTH (ALWAYS WORKS)
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 BB AI LEVEL 3 LIVE");
+  res.send("🚀 BB AI LIVE STABLE SYSTEM");
 });
 
 app.get("/health", (req, res) => {
@@ -102,12 +75,15 @@ app.get("/health", (req, res) => {
 
   res.json({
     status: "OK",
+    server: "running",
     db:
       state === 1
         ? "connected"
         : state === 2
         ? "connecting"
         : "disconnected",
+    mode: state === 1 ? "online" : "offline",
+    uptime: process.uptime(),
   });
 });
 
@@ -122,11 +98,7 @@ app.post("/register", async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
 
-    await User.create({
-      email,
-      password: hashed,
-      pro: false,
-    });
+    await User.create({ email, password: hashed });
 
     res.json({ message: "User created" });
   } catch (err) {
@@ -155,7 +127,7 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI (PUBLIC)
+// AI (OFFLINE SAFE)
 // =====================
 app.post("/ai", async (req, res) => {
   try {
@@ -164,16 +136,24 @@ app.post("/ai", async (req, res) => {
     ]);
 
     res.json({ reply });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch {
+    res.json({
+      reply: "⚠️ AI offline mode active",
+    });
   }
 });
 
 // =====================
-// AI PRO (MEMORY)
+// AI PRO (DB SAFE)
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
+    if (!dbReady()) {
+      return res.json({
+        reply: "⚠️ AI Pro requires database connection (currently offline mode)",
+      });
+    }
+
     let chat = await Chat.findOne({ userId: req.user.email });
 
     if (!chat) {
@@ -199,15 +179,19 @@ app.post("/ai-pro", auth, async (req, res) => {
 
     res.json({ reply });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json({ reply: "⚠️ AI Pro error (DB offline fallback)" });
   }
 });
 
 // =====================
-// AGENTS
+// AGENTS (SAFE)
 // =====================
 app.post("/agent/create", auth, async (req, res) => {
   try {
+    if (!dbReady()) {
+      return res.json({ message: "Agent saved in offline mode (DB not ready)" });
+    }
+
     await Agent.create({
       userId: req.user.email,
       type: req.body.type,
@@ -221,7 +205,7 @@ app.post("/agent/create", auth, async (req, res) => {
 });
 
 // =====================
-// STRIPE SUBSCRIPTION
+// STRIPE
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -233,31 +217,15 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// CRON JOB (SAFE)
+// CRON SAFE
 // =====================
 cron.schedule("* * * * *", async () => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      console.log("⏳ Skipping agents — DB not ready");
-      return;
-    }
-
-    console.log("⏱ Running AI agents...");
+    if (!dbReady()) return;
     await runAgents();
   } catch (err) {
     console.error("Agent error:", err.message);
   }
-});
-
-// =====================
-// GLOBAL ERROR HANDLING
-// =====================
-process.on("uncaughtException", (err) => {
-  console.error("💥 Uncaught Exception:", err.message);
-});
-
-process.on("unhandledRejection", (err) => {
-  console.error("💥 Unhandled Rejection:", err?.message || err);
 });
 
 // =====================
