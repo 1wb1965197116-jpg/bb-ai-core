@@ -12,6 +12,7 @@
     "mongoose": "^8.5.0",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "stripe": "^16.0.0"
   }
 }
