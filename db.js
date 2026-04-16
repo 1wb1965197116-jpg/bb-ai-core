@@ -1,19 +1,23 @@
 const mongoose = require("mongoose");
 
-mongoose.connect(process.env.MONGO_URI);
+const MONGO_URI = process.env.MONGO_URI;
 
-const UserSchema = new mongoose.Schema({
-  email: String,
-  password: String,
-  pro: { type: Boolean, default: false }
-});
+async function connectDB() {
+  if (!MONGO_URI) {
+    console.log("⚠️ MONGO_URI missing — running without database");
+    return;
+  }
 
-const ChatSchema = new mongoose.Schema({
-  email: String,
-  messages: Array
-});
+  try {
+    await mongoose.connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 5000
+    });
 
-const User = mongoose.model("User", UserSchema);
-const Chat = mongoose.model("Chat", ChatSchema);
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.log("❌ MongoDB connection failed:");
+    console.log(err.message);
+  }
+}
 
-module.exports = { User, Chat };
+module.exports = connectDB;
