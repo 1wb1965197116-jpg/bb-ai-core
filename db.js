@@ -1,38 +1,44 @@
 const mongoose = require("mongoose");
 
-const MONGO_URI = process.env.MONGO_URI;
-
-if (!MONGO_URI) {
-  console.error("❌ MONGO_URI missing in environment variables");
-  process.exit(1);
-}
-
 async function connectDB() {
-  try {
-    await mongoose.connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 10000,
-    });
+  if (!process.env.MONGO_URI) {
+    console.error("❌ MONGO_URI missing");
+    return;
+  }
 
-    console.log("✅ MongoDB Connected Successfully");
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("✅ MongoDB Connected");
   } catch (err) {
-    console.error("❌ MongoDB Connection Failed:", err.message);
-    process.exit(1);
+    console.error("❌ MongoDB Error:", err.message);
   }
 }
 
-// Models
-const userSchema = new mongoose.Schema({
+const UserSchema = new mongoose.Schema({
   email: String,
   password: String,
-  pro: { type: Boolean, default: false },
+  pro: { type: Boolean, default: false }
 });
 
-const chatSchema = new mongoose.Schema({
+const ChatSchema = new mongoose.Schema({
   email: String,
-  messages: Array,
+  messages: Array
 });
 
-const User = mongoose.model("User", userSchema);
-const Chat = mongoose.model("Chat", chatSchema);
+const AgentSchema = new mongoose.Schema({
+  email: String,
+  type: String,
+  prompt: String,
+  lastRun: Date
+});
 
-module.exports = { connectDB, User, Chat };
+const User = mongoose.model("User", UserSchema);
+const Chat = mongoose.model("Chat", ChatSchema);
+const Agent = mongoose.model("Agent", AgentSchema);
+
+module.exports = {
+  connectDB,
+  User,
+  Chat,
+  Agent
+};
