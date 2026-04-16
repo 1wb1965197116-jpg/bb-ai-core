@@ -10,6 +10,7 @@ const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
+const mongoose = require("mongoose"); // ✅ FIXED
 
 // DB + MODELS
 const { connectDB } = require("./db");
@@ -71,14 +72,17 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH ROUTE
+// HEALTH + ROOT
 // =====================
 app.get("/", (req, res) => {
   res.send("🚀 BB AI LEVEL 3 LIVE");
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "OK" });
+  res.json({
+    status: "OK",
+    db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+  });
 });
 
 // =====================
@@ -89,14 +93,9 @@ app.post("/register", async (req, res) => {
     const bcrypt = require("bcryptjs");
 
     const { email, password } = req.body;
-
     const hashed = await bcrypt.hash(password, 10);
 
-    await User.create({
-      email,
-      password: hashed,
-      pro: false,
-    });
+    await User.create({ email, password: hashed, pro: false });
 
     res.json({ message: "User created" });
   } catch (err) {
@@ -132,7 +131,6 @@ app.post("/ai", async (req, res) => {
     const reply = await askAI([
       { role: "user", content: req.body.text },
     ]);
-
     res.json({ reply });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -153,17 +151,11 @@ app.post("/ai-pro", auth, async (req, res) => {
       });
     }
 
-    chat.messages.push({
-      role: "user",
-      content: req.body.text,
-    });
+    chat.messages.push({ role: "user", content: req.body.text });
 
     const reply = await askAI(chat.messages);
 
-    chat.messages.push({
-      role: "assistant",
-      content: reply,
-    });
+    chat.messages.push({ role: "assistant", content: reply });
 
     await chat.save();
 
@@ -203,11 +195,22 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// 🤖 AUTO AGENTS (CRON)
+// 🤖 AUTO AGENTS
 // =====================
 cron.schedule("* * * * *", async () => {
   console.log("⏱ Running AI agents...");
   await runAgents();
+});
+
+// =====================
+// GLOBAL ERROR HANDLER
+// =====================
+process.on("uncaughtException", (err) => {
+  console.error("💥 Uncaught Exception:", err.message);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("💥 Unhandled Rejection:", err?.message || err);
 });
 
 // =====================
