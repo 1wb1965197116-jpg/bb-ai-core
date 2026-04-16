@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
@@ -5,18 +7,16 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 
-const { User, Chat } = require("./db");
+const { User, Chat, connectDB } = require("./db");
 
-// Node fetch fix (IMPORTANT)
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // =====================
-// MEMORY (auto agents)
+// MEMORY (TEMP AGENTS)
 // =====================
 let agents = [];
 
@@ -66,18 +66,14 @@ function auth(req, res, next) {
 }
 
 // =====================
-// TEST
+// HEALTH CHECK
 // =====================
 app.get("/", (req, res) => {
-  res.send("BB AI CORE RUNNING 🚀");
-});
-
-app.get("/test", (req, res) => {
-  res.json({ status: "OK", message: "API working" });
+  res.send("BB AI CORE LIVE 🚀");
 });
 
 // =====================
-// AUTH ROUTES
+// REGISTER
 // =====================
 app.post("/register", async (req, res) => {
   try {
@@ -97,6 +93,9 @@ app.post("/register", async (req, res) => {
   }
 });
 
+// =====================
+// LOGIN
+// =====================
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -116,7 +115,7 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// STRIPE CHECKOUT
+// STRIPE SUBSCRIPTION
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -130,7 +129,9 @@ app.post("/create-subscription", async (req, res) => {
         {
           price_data: {
             currency: "usd",
-            product_data: { name: "BB AI Pro" },
+            product_data: {
+              name: "BB AI Pro",
+            },
             unit_amount: 999,
             recurring: { interval: "month" },
           },
@@ -148,12 +149,32 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 app.get("/success", (req, res) => {
-  res.send("Payment successful 🎉 Pro unlocked soon.");
+  res.send("Payment successful 🎉 Pro will unlock shortly.");
 });
 
 app.get("/cancel", (req, res) => {
   res.send("Payment cancelled");
 });
+
+// =====================
+// OPENAI HELPER
+// =====================
+async function askAI(messages) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages,
+    }),
+  });
+
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || "No response";
+}
 
 // =====================
 // PUBLIC AI
@@ -162,28 +183,13 @@ app.post("/ai-reply-public", async (req, res) => {
   try {
     const text = req.body?.text || "";
 
-    const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: text }],
-        }),
-      }
-    );
+    const reply = await askAI([
+      { role: "user", content: text },
+    ]);
 
-    const data = await response.json();
-
-    res.json({
-      reply: data?.choices?.[0]?.message?.content || "No response",
-    });
+    res.json({ reply });
   } catch (err) {
-    res.json({ reply: "Error: " + err.message });
+    res.json({ reply: err.message });
   }
 });
 
@@ -204,25 +210,7 @@ app.post("/ai-reply", auth, async (req, res) => {
 
     chat.messages.push({ role: "user", content: text });
 
-    const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: chat.messages,
-        }),
-      }
-    );
-
-    const data = await response.json();
-
-    const reply =
-      data?.choices?.[0]?.message?.content || "No response";
+    const reply = await askAI(chat.messages);
 
     chat.messages.push({ role: "assistant", content: reply });
 
@@ -235,7 +223,7 @@ app.post("/ai-reply", auth, async (req, res) => {
 });
 
 // =====================
-// AGENTS
+// CREATE AGENT
 // =====================
 app.post("/agent/create", auth, (req, res) => {
   const { type, prompt } = req.body;
@@ -252,46 +240,28 @@ app.post("/agent/create", auth, (req, res) => {
 });
 
 // =====================
-// AUTO RUN AGENTS
+// AUTO RUN AGENTS (EVERY MINUTE)
 // =====================
 cron.schedule("* * * * *", async () => {
   console.log("⏱ Running agents...");
 
   for (let agent of agents) {
     try {
-      let system = "You are a helpful AI.";
+      let system = "You are a helpful AI assistant.";
 
       if (agent.type === "business")
-        system = "Generate business ideas.";
+        system = "Generate profitable business ideas.";
       if (agent.type === "money")
-        system = "Generate ways to make money.";
+        system = "Generate ways to make money online.";
       if (agent.type === "email")
-        system = "Write business emails.";
+        system = "Write high-converting business emails.";
 
-      const response = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [
-              { role: "system", content: system },
-              { role: "user", content: agent.prompt || "Run task" },
-            ],
-          }),
-        }
-      );
+      const result = await askAI([
+        { role: "system", content: system },
+        { role: "user", content: agent.prompt || "Run task" },
+      ]);
 
-      const data = await response.json();
-
-      console.log(
-        "🤖 Agent:",
-        data?.choices?.[0]?.message?.content
-      );
+      console.log("🤖 Agent Result:", result);
     } catch (err) {
       console.error("Agent error:", err.message);
     }
