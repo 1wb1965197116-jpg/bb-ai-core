@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dashboard</title>
+</head>
+<body>
+
+<h1>User Dashboard</h1>
+
+<div id="userData"></div>
+
+<button onclick="loadData()">Load My Stats</button>
+
+<script>
+async function loadData() {
+  const token = localStorage.getItem("token");
+
+  const res = await fetch("/health", {
+    headers: {
+      Authorization: "Bearer " + token
+    }
+  });
+
+  const data = await res.json();
+
+  document.getElementById("userData").innerText =
+    JSON.stringify(data, null, 2);
+}
+</script>
+
+</body>
+</html>
