@@ -5,8 +5,7 @@ const AgentSchema = new mongoose.Schema({
   type: String,
   prompt: String,
   active: { type: Boolean, default: true },
-  lastRun: Date,
-  interval: { type: Number, default: 60 } // minutes
+  lastRun: Date
 });
 
-module.exports = mongoose.model("Agent", AgentSchema);
+module.exports = mongoose.models.Agent || mongoose.model("Agent", AgentSchema);
