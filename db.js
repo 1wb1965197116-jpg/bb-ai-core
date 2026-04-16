@@ -2,22 +2,37 @@ const mongoose = require("mongoose");
 
 const MONGO_URI = process.env.MONGO_URI;
 
-async function connectDB() {
-  if (!MONGO_URI) {
-    console.log("⚠️ MONGO_URI missing — running without database");
-    return;
-  }
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI missing in environment variables");
+  process.exit(1);
+}
 
+async function connectDB() {
   try {
     await mongoose.connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 5000
+      serverSelectionTimeoutMS: 10000,
     });
 
-    console.log("✅ MongoDB connected");
+    console.log("✅ MongoDB Connected Successfully");
   } catch (err) {
-    console.log("❌ MongoDB connection failed:");
-    console.log(err.message);
+    console.error("❌ MongoDB Connection Failed:", err.message);
+    process.exit(1);
   }
 }
 
-module.exports = connectDB;
+// Models
+const userSchema = new mongoose.Schema({
+  email: String,
+  password: String,
+  pro: { type: Boolean, default: false },
+});
+
+const chatSchema = new mongoose.Schema({
+  email: String,
+  messages: Array,
+});
+
+const User = mongoose.model("User", userSchema);
+const Chat = mongoose.model("Chat", chatSchema);
+
+module.exports = { connectDB, User, Chat };
