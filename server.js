@@ -6,7 +6,13 @@ const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 const mongoose = require("mongoose");
 
-const { connectDB, dbReady, dbHealth } = require("./db");
+const { connectDB, dbHealth } = require("./db");
+const {
+  recordDBFailure,
+  recordAIRequest,
+  recordCacheHit,
+  getSystemMetrics,
+} = require("./systemCore");
 
 const User = require("./models/User");
 const Chat = require("./models/Chat");
@@ -20,13 +26,13 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// MEMORY SYSTEMS (v6)
+// SYSTEM MEMORY LAYERS
 // =====================
-const memoryQueue = [];
 const aiCache = new Map();
+const memoryQueue = [];
 
 // =====================
-// QUEUE SYSTEM
+// QUEUE ENGINE
 // =====================
 function queueJob(job) {
   memoryQueue.push({
@@ -35,9 +41,8 @@ function queueJob(job) {
   });
 }
 
-// Process queued jobs safely
 setInterval(async () => {
-  if (!dbReady()) return;
+  if (mongoose.connection.readyState !== 1) return;
 
   const batch = Math.min(5, memoryQueue.length);
 
@@ -64,7 +69,7 @@ setInterval(async () => {
 // =====================
 app.use(cors());
 
-// Stripe webhook MUST stay raw BEFORE json middleware
+// Stripe webhook MUST come first
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -97,10 +102,10 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH (FULL TELEMETRY)
+// HEALTH (SYSTEM BRAIN)
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 AI OS v6 ENTERPRISE FULL SYSTEM ONLINE");
+  res.send("🚀 AI OS v7 FULL ENTERPRISE SYSTEM RUNNING");
 });
 
 app.get("/health", (req, res) => {
@@ -113,8 +118,6 @@ app.get("/health", (req, res) => {
     db:
       state === 1
         ? "connected"
-        : state === 2
-        ? "connecting"
         : "offline",
 
     mode: state === 1 ? "online" : "degraded",
@@ -124,6 +127,7 @@ app.get("/health", (req, res) => {
       queueDepth: memoryQueue.length,
       cacheSize: aiCache.size,
       dbHealth: dbHealth(),
+      metrics: getSystemMetrics(),
     },
   });
 });
@@ -168,13 +172,17 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI (CACHE ENABLED)
+// AI ENGINE (CACHE + METRICS)
 // =====================
 app.post("/ai", async (req, res) => {
   try {
     const key = req.body.text;
 
+    recordAIRequest();
+
     if (aiCache.has(key)) {
+      recordCacheHit();
+
       return res.json({
         reply: aiCache.get(key),
         cached: true,
@@ -188,19 +196,22 @@ app.post("/ai", async (req, res) => {
     aiCache.set(key, reply);
 
     res.json({ reply });
+
   } catch {
     res.json({
-      reply: "⚠️ AI fallback mode active",
+      reply: "⚠️ AI fallback active",
     });
   }
 });
 
 // =====================
-// AI PRO (DB SAFE + QUEUE SUPPORT)
+// AI PRO (QUEUE + SAFE DB)
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
-    if (!dbReady()) {
+    const state = mongoose.connection.readyState;
+
+    if (state !== 1) {
       queueJob(async () => {
         let chat = await Chat.findOne({ userId: req.user.email });
 
@@ -227,7 +238,7 @@ app.post("/ai-pro", auth, async (req, res) => {
       });
 
       return res.json({
-        reply: "⚠️ Offline mode — request queued for sync",
+        reply: "⚠️ Offline mode — request queued",
       });
     }
 
@@ -262,11 +273,11 @@ app.post("/ai-pro", auth, async (req, res) => {
 });
 
 // =====================
-// AGENTS (QUEUE SAFE)
+// AGENT SYSTEM
 // =====================
 app.post("/agent/create", auth, async (req, res) => {
   try {
-    if (!dbReady()) {
+    if (mongoose.connection.readyState !== 1) {
       queueJob(() =>
         Agent.create({
           userId: req.user.email,
@@ -275,7 +286,7 @@ app.post("/agent/create", auth, async (req, res) => {
         })
       );
 
-      return res.json({ message: "Agent queued (offline mode)" });
+      return res.json({ message: "Queued (offline mode)" });
     }
 
     await Agent.create({
@@ -304,10 +315,10 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// CRON JOBS
+// CRON WORKERS
 // =====================
 cron.schedule("* * * * *", async () => {
-  if (!dbReady()) return;
+  if (mongoose.connection.readyState !== 1) return;
 
   try {
     await runAgents();
@@ -317,8 +328,17 @@ cron.schedule("* * * * *", async () => {
 });
 
 // =====================
+// DB FAILURE TRACKING
+// =====================
+setInterval(() => {
+  if (mongoose.connection.readyState !== 1) {
+    recordDBFailure();
+  }
+}, 10000);
+
+// =====================
 // START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 AI OS v6 running on port ${PORT}`);
+  console.log(`🚀 AI OS v7 running on port ${PORT}`);
 });
