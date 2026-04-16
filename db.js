@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 let state = {
-  connected: false,
   retry: 0,
   lastError: null,
 };
@@ -19,24 +18,22 @@ async function connectDB() {
   try {
     await mongoose.connect(uri);
 
-    state.connected = true;
     state.retry = 0;
     state.lastError = null;
 
-    console.log("✅ MongoDB Connected (v4 system)");
+    console.log("✅ MongoDB Connected (stable mode)");
 
   } catch (err) {
-    state.connected = false;
     state.lastError = err.message;
+    console.error("❌ MongoDB Error:", err.message);
 
-    console.error("❌ Mongo connect failed:", err.message);
     scheduleReconnect();
   }
 }
 
 function scheduleReconnect() {
   if (state.retry >= MAX_RETRIES) {
-    console.log("⚠️ MongoDB locked in offline mode (max retries reached)");
+    console.log("⚠️ MongoDB offline mode locked (max retries reached)");
     return;
   }
 
@@ -44,18 +41,10 @@ function scheduleReconnect() {
 
   const delay = Math.min(2000 * state.retry, 20000);
 
-  console.log(`🔁 Auto-repair MongoDB in ${delay / 1000}s (attempt ${state.retry})`);
+  console.log(`🔁 Reconnecting MongoDB in ${delay / 1000}s`);
 
   setTimeout(connectDB, delay);
 }
-
-// 🔥 LIVE STATUS CHECKER (NEW)
-setInterval(() => {
-  const ready = mongoose.connection.readyState === 1;
-
-  state.connected = ready;
-
-}, 5000);
 
 function dbReady() {
   return mongoose.connection.readyState === 1;
