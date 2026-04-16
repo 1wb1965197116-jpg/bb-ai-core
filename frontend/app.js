@@ -1,13 +1,17 @@
-const API = "";
+const API_BASE =
+  window.location.hostname === "localhost"
+    ? "http://localhost:10000"
+    : window.location.origin;
 
-function goTo(page) {
-  window.location.href = page;
-}
+async function callAI(text) {
+  const res = await fetch(`${API_BASE}/ai`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + localStorage.getItem("token")
+    },
+    body: JSON.stringify({ text })
+  });
 
-async function loadHealth() {
-  const res = await fetch(API + "/health");
-  const data = await res.json();
-
-  document.getElementById("statusBox").innerText =
-    JSON.stringify(data, null, 2);
+  return await res.json();
 }
