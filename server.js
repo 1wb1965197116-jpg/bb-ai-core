@@ -20,11 +20,9 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// SAAS MEMORY SYSTEM
+// SAAS METRICS CORE
 // =====================
 const aiCache = new Map();
-const usageTracker = new Map();
-const queue = [];
 
 // =====================
 // DB INIT
@@ -38,6 +36,7 @@ const queue = [];
 // =====================
 app.use(cors());
 
+// Stripe webhook MUST stay raw
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -70,14 +69,14 @@ function auth(req, res, next) {
 }
 
 // =====================
-// SaaS SUBSCRIPTION GUARD
+// PRO GUARD (SAAS CORE)
 // =====================
 async function requirePro(req, res, next) {
   const user = await User.findOne({ email: req.user.email });
 
-  if (!user || !user.pro) {
+  if (!user?.pro) {
     return res.status(403).json({
-      error: "Upgrade required",
+      error: "Pro subscription required",
     });
   }
 
@@ -88,7 +87,7 @@ async function requirePro(req, res, next) {
 // HEALTH
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 AI OS v8 SAAS PLATFORM RUNNING");
+  res.send("🚀 AI OS v9 SAAS PLATFORM LIVE");
 });
 
 app.get("/health", (req, res) => {
@@ -102,7 +101,7 @@ app.get("/health", (req, res) => {
 });
 
 // =====================
-// AUTH
+// REGISTER / LOGIN
 // =====================
 app.post("/register", async (req, res) => {
   try {
@@ -148,16 +147,15 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI (FREE TIER LIMITING)
+// AI (FREE + LIMITS)
 // =====================
 app.post("/ai", auth, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
 
-    // usage tracking
     user.usage = (user.usage || 0) + 1;
 
-    if (!user.pro && user.usage > 20) {
+    if (!user.pro && user.usage > 25) {
       return res.json({
         reply: "Free limit reached. Upgrade to Pro.",
       });
@@ -241,12 +239,25 @@ app.post("/agent/create", auth, requirePro, async (req, res) => {
 });
 
 // =====================
-// STRIPE
+// STRIPE BILLING
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
     const session = await createCheckout(req.body.email);
     res.json({ url: session.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =====================
+// STRIPE WEBHOOK HANDLER
+// =====================
+app.post("/stripe-webhook", async (req, res) => {
+  try {
+    const event = req.body;
+    await handleStripeEvent(event);
+    res.json({ received: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -267,5 +278,5 @@ cron.schedule("* * * * *", async () => {
 // START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 AI OS v8 SaaS running on port ${PORT}`);
+  console.log(`🚀 AI OS v9 SaaS running on port ${PORT}`);
 });
