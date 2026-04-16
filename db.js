@@ -1,8 +1,12 @@
 const mongoose = require("mongoose");
 
-let retryCount = 0;
-const MAX_RETRIES = 5;
-let isConnected = false;
+let state = {
+  connected: false,
+  retry: 0,
+  lastError: null,
+};
+
+const MAX_RETRIES = 6;
 
 async function connectDB() {
   const uri = process.env.MONGODB_URI;
@@ -14,40 +18,55 @@ async function connectDB() {
 
   try {
     await mongoose.connect(uri);
-    isConnected = true;
-    retryCount = 0;
 
-    console.log("✅ MongoDB Connected");
+    state.connected = true;
+    state.retry = 0;
+    state.lastError = null;
 
-    mongoose.connection.on("disconnected", () => {
-      console.log("⚠️ MongoDB disconnected");
-      isConnected = false;
-      reconnect();
-    });
+    console.log("✅ MongoDB Connected (v4 system)");
 
   } catch (err) {
-    console.error("❌ MongoDB Connection Failed:", err.message);
-    reconnect();
+    state.connected = false;
+    state.lastError = err.message;
+
+    console.error("❌ Mongo connect failed:", err.message);
+    scheduleReconnect();
   }
 }
 
-function reconnect() {
-  if (retryCount >= MAX_RETRIES) {
-    console.log("⚠️ MongoDB in offline mode (max retries reached)");
+function scheduleReconnect() {
+  if (state.retry >= MAX_RETRIES) {
+    console.log("⚠️ MongoDB locked in offline mode (max retries reached)");
     return;
   }
 
-  retryCount++;
+  state.retry++;
 
-  const delay = Math.min(2000 * retryCount, 15000);
+  const delay = Math.min(2000 * state.retry, 20000);
 
-  console.log(`🔁 Retry MongoDB in ${delay / 1000}s`);
+  console.log(`🔁 Auto-repair MongoDB in ${delay / 1000}s (attempt ${state.retry})`);
 
   setTimeout(connectDB, delay);
 }
+
+// 🔥 LIVE STATUS CHECKER (NEW)
+setInterval(() => {
+  const ready = mongoose.connection.readyState === 1;
+
+  state.connected = ready;
+
+}, 5000);
 
 function dbReady() {
   return mongoose.connection.readyState === 1;
 }
 
-module.exports = { connectDB, dbReady };
+function dbState() {
+  return {
+    connected: dbReady(),
+    retry: state.retry,
+    lastError: state.lastError,
+  };
+}
+
+module.exports = { connectDB, dbReady, dbState };
