@@ -1,31 +1,24 @@
 const mongoose = require("mongoose");
 
-let isConnected = false;
 let retryCount = 0;
-const MAX_RETRIES = 10;
+const MAX_RETRIES = 5;
+let isConnected = false;
 
 async function connectDB() {
-  if (isConnected) {
-    console.log("⚡ Mongo already connected");
-    return;
-  }
-
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const uri = process.env.MONGODB_URI;
 
   if (!uri) {
-    console.error("❌ MongoDB URI missing (MONGODB_URI)");
-    process.exit(1);
+    console.error("❌ Missing MONGODB_URI");
+    return;
   }
 
   try {
     await mongoose.connect(uri);
-
     isConnected = true;
     retryCount = 0;
 
     console.log("✅ MongoDB Connected");
 
-    // Handle runtime disconnects
     mongoose.connection.on("disconnected", () => {
       console.log("⚠️ MongoDB disconnected");
       isConnected = false;
@@ -40,17 +33,21 @@ async function connectDB() {
 
 function reconnect() {
   if (retryCount >= MAX_RETRIES) {
-    console.error("💥 MongoDB max retries reached — exiting process");
-    process.exit(1);
+    console.log("⚠️ MongoDB in offline mode (max retries reached)");
+    return;
   }
 
   retryCount++;
 
-  const delay = Math.min(1000 * retryCount * 2, 30000);
+  const delay = Math.min(2000 * retryCount, 15000);
 
-  console.log(`🔁 Reconnecting MongoDB in ${delay / 1000}s (attempt ${retryCount})`);
+  console.log(`🔁 Retry MongoDB in ${delay / 1000}s`);
 
   setTimeout(connectDB, delay);
 }
 
-module.exports = { connectDB };
+function dbReady() {
+  return mongoose.connection.readyState === 1;
+}
+
+module.exports = { connectDB, dbReady };
