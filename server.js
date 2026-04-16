@@ -5,6 +5,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 const mongoose = require("mongoose");
+const path = require("path"); // ✅ ADDED
 
 const { connectDB } = require("./db");
 
@@ -20,12 +21,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// CORE SYSTEM MEMORY
-// =====================
-const aiCache = new Map();
-
-// =====================
-// DB INIT
+// CONNECT DB
 // =====================
 (async () => {
   await connectDB();
@@ -35,8 +31,31 @@ const aiCache = new Map();
 // MIDDLEWARE
 // =====================
 app.use(cors());
+app.use(express.json());
 
-// Stripe webhook (raw must come first)
+// =====================
+// FRONTEND STATIC SERVE
+// =====================
+app.use(express.static(path.join(__dirname, "frontend")));
+
+// =====================
+// FRONTEND ROUTES (SPA STYLE)
+// =====================
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend/dashboard.html"));
+});
+
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend/admin.html"));
+});
+
+app.get("/billing", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend/billing.html"));
+});
+
+// =====================
+// STRIPE WEBHOOK (RAW BODY MUST BE FIRST)
+// =====================
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -51,10 +70,8 @@ app.post(
   }
 );
 
-app.use(express.json());
-
 // =====================
-// AUTH SYSTEM
+// AUTH MIDDLEWARE
 // =====================
 function auth(req, res, next) {
   try {
@@ -69,39 +86,24 @@ function auth(req, res, next) {
 }
 
 // =====================
-// PROTECTION LAYER
-// =====================
-async function requirePro(req, res, next) {
-  const user = await User.findOne({ email: req.user.email });
-
-  if (!user?.pro) {
-    return res.status(403).json({ error: "Pro plan required" });
-  }
-
-  next();
-}
-
-// =====================
-// SYSTEM HEALTH
+// HEALTH
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 AI OS v10 FULL SAAS ECOSYSTEM ONLINE");
+  res.send("🚀 AI OS FULL STACK RUNNING");
 });
 
 app.get("/health", (req, res) => {
-  const state = mongoose.connection.readyState;
-
   res.json({
     status: "OK",
     server: "running",
-    db: state === 1 ? "connected" : "offline",
-    mode: state === 1 ? "online" : "degraded",
+    db: mongoose.connection.readyState === 1 ? "connected" : "offline",
+    mode: mongoose.connection.readyState === 1 ? "online" : "degraded",
     uptime: process.uptime(),
   });
 });
 
 // =====================
-// USER SYSTEM
+// AUTH ROUTES
 // =====================
 app.post("/register", async (req, res) => {
   try {
@@ -116,7 +118,6 @@ app.post("/register", async (req, res) => {
       password: hashed,
       pro: false,
       usage: 0,
-      createdAt: Date.now(),
     });
 
     res.json({ message: "User created" });
@@ -133,11 +134,9 @@ app.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-
     if (!user) return res.json({ error: "User not found" });
 
     const valid = await bcrypt.compare(password, user.password);
-
     if (!valid) return res.json({ error: "Wrong password" });
 
     const token = jwt.sign({ email }, process.env.JWT_SECRET);
@@ -150,37 +149,13 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI ENGINE (FREE TIER + LIMITS)
+// AI ENDPOINT
 // =====================
 app.post("/ai", auth, async (req, res) => {
   try {
-    const user = await User.findOne({ email: req.user.email });
-
-    user.usage = (user.usage || 0) + 1;
-
-    // FREE LIMIT
-    if (!user.pro && user.usage > 30) {
-      return res.json({
-        reply: "Free limit reached. Upgrade to Pro to continue.",
-      });
-    }
-
-    await user.save();
-
-    const key = req.body.text;
-
-    if (aiCache.has(key)) {
-      return res.json({
-        reply: aiCache.get(key),
-        cached: true,
-      });
-    }
-
     const reply = await askAI([
-      { role: "user", content: key },
+      { role: "user", content: req.body.text },
     ]);
-
-    aiCache.set(key, reply);
 
     res.json({ reply });
 
@@ -190,9 +165,9 @@ app.post("/ai", auth, async (req, res) => {
 });
 
 // =====================
-// PRO AI (FULL MEMORY SYSTEM)
+// AI PRO
 // =====================
-app.post("/ai-pro", auth, requirePro, async (req, res) => {
+app.post("/ai-pro", auth, async (req, res) => {
   try {
     let chat = await Chat.findOne({ userId: req.user.email });
 
@@ -225,9 +200,9 @@ app.post("/ai-pro", auth, requirePro, async (req, res) => {
 });
 
 // =====================
-// AGENT SYSTEM (PRO ONLY)
+// AGENT SYSTEM
 // =====================
-app.post("/agent/create", auth, requirePro, async (req, res) => {
+app.post("/agent/create", auth, async (req, res) => {
   try {
     await Agent.create({
       userId: req.user.email,
@@ -243,7 +218,7 @@ app.post("/agent/create", auth, requirePro, async (req, res) => {
 });
 
 // =====================
-// STRIPE SYSTEM
+// STRIPE
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -254,18 +229,8 @@ app.post("/create-subscription", async (req, res) => {
   }
 });
 
-app.post("/stripe-webhook", async (req, res) => {
-  try {
-    const event = req.body;
-    await handleStripeEvent(event);
-    res.json({ received: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // =====================
-// AI WORKER ENGINE
+// CRON JOBS
 // =====================
 cron.schedule("* * * * *", async () => {
   try {
@@ -279,5 +244,5 @@ cron.schedule("* * * * *", async () => {
 // START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 AI OS v10 SaaS Ecosystem running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
