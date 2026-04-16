@@ -20,7 +20,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// SAAS METRICS CORE
+// CORE SYSTEM MEMORY
 // =====================
 const aiCache = new Map();
 
@@ -36,7 +36,7 @@ const aiCache = new Map();
 // =====================
 app.use(cors());
 
-// Stripe webhook MUST stay raw
+// Stripe webhook (raw must come first)
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -54,7 +54,7 @@ app.post(
 app.use(express.json());
 
 // =====================
-// AUTH
+// AUTH SYSTEM
 // =====================
 function auth(req, res, next) {
   try {
@@ -69,39 +69,39 @@ function auth(req, res, next) {
 }
 
 // =====================
-// PRO GUARD (SAAS CORE)
+// PROTECTION LAYER
 // =====================
 async function requirePro(req, res, next) {
   const user = await User.findOne({ email: req.user.email });
 
   if (!user?.pro) {
-    return res.status(403).json({
-      error: "Pro subscription required",
-    });
+    return res.status(403).json({ error: "Pro plan required" });
   }
 
   next();
 }
 
 // =====================
-// HEALTH
+// SYSTEM HEALTH
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 AI OS v9 SAAS PLATFORM LIVE");
+  res.send("🚀 AI OS v10 FULL SAAS ECOSYSTEM ONLINE");
 });
 
 app.get("/health", (req, res) => {
+  const state = mongoose.connection.readyState;
+
   res.json({
     status: "OK",
     server: "running",
-    db: mongoose.connection.readyState === 1 ? "connected" : "offline",
-    mode: mongoose.connection.readyState === 1 ? "online" : "degraded",
+    db: state === 1 ? "connected" : "offline",
+    mode: state === 1 ? "online" : "degraded",
     uptime: process.uptime(),
   });
 });
 
 // =====================
-// REGISTER / LOGIN
+// USER SYSTEM
 // =====================
 app.post("/register", async (req, res) => {
   try {
@@ -116,6 +116,7 @@ app.post("/register", async (req, res) => {
       password: hashed,
       pro: false,
       usage: 0,
+      createdAt: Date.now(),
     });
 
     res.json({ message: "User created" });
@@ -132,9 +133,11 @@ app.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
+
     if (!user) return res.json({ error: "User not found" });
 
     const valid = await bcrypt.compare(password, user.password);
+
     if (!valid) return res.json({ error: "Wrong password" });
 
     const token = jwt.sign({ email }, process.env.JWT_SECRET);
@@ -147,7 +150,7 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI (FREE + LIMITS)
+// AI ENGINE (FREE TIER + LIMITS)
 // =====================
 app.post("/ai", auth, async (req, res) => {
   try {
@@ -155,9 +158,10 @@ app.post("/ai", auth, async (req, res) => {
 
     user.usage = (user.usage || 0) + 1;
 
-    if (!user.pro && user.usage > 25) {
+    // FREE LIMIT
+    if (!user.pro && user.usage > 30) {
       return res.json({
-        reply: "Free limit reached. Upgrade to Pro.",
+        reply: "Free limit reached. Upgrade to Pro to continue.",
       });
     }
 
@@ -186,7 +190,7 @@ app.post("/ai", auth, async (req, res) => {
 });
 
 // =====================
-// PRO AI (FULL MEMORY)
+// PRO AI (FULL MEMORY SYSTEM)
 // =====================
 app.post("/ai-pro", auth, requirePro, async (req, res) => {
   try {
@@ -221,7 +225,7 @@ app.post("/ai-pro", auth, requirePro, async (req, res) => {
 });
 
 // =====================
-// AGENTS (PRO ONLY)
+// AGENT SYSTEM (PRO ONLY)
 // =====================
 app.post("/agent/create", auth, requirePro, async (req, res) => {
   try {
@@ -239,7 +243,7 @@ app.post("/agent/create", auth, requirePro, async (req, res) => {
 });
 
 // =====================
-// STRIPE BILLING
+// STRIPE SYSTEM
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -250,9 +254,6 @@ app.post("/create-subscription", async (req, res) => {
   }
 });
 
-// =====================
-// STRIPE WEBHOOK HANDLER
-// =====================
 app.post("/stripe-webhook", async (req, res) => {
   try {
     const event = req.body;
@@ -264,7 +265,7 @@ app.post("/stripe-webhook", async (req, res) => {
 });
 
 // =====================
-// CRON WORKER
+// AI WORKER ENGINE
 // =====================
 cron.schedule("* * * * *", async () => {
   try {
@@ -278,5 +279,5 @@ cron.schedule("* * * * *", async () => {
 // START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 AI OS v9 SaaS running on port ${PORT}`);
+  console.log(`🚀 AI OS v10 SaaS Ecosystem running on port ${PORT}`);
 });
