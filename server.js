@@ -5,7 +5,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 const mongoose = require("mongoose");
-const path = require("path"); // ✅ ADDED
+const path = require("path");
 
 const { connectDB } = require("./db");
 
@@ -21,7 +21,14 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// CONNECT DB
+// APP CONFIG
+// =====================
+const APP_NAME = process.env.APP_NAME || "bbai-core";
+
+console.log(`🚀 ${APP_NAME} starting...`);
+
+// =====================
+// DB CONNECT
 // =====================
 (async () => {
   await connectDB();
@@ -34,13 +41,10 @@ app.use(cors());
 app.use(express.json());
 
 // =====================
-// FRONTEND STATIC SERVE
+// FRONTEND STATIC
 // =====================
 app.use(express.static(path.join(__dirname, "frontend")));
 
-// =====================
-// FRONTEND ROUTES (SPA STYLE)
-// =====================
 app.get("/dashboard", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend/dashboard.html"));
 });
@@ -54,24 +58,22 @@ app.get("/billing", (req, res) => {
 });
 
 // =====================
-// STRIPE WEBHOOK (RAW BODY MUST BE FIRST)
+// HEALTH (PRO SAFE)
 // =====================
-app.post(
-  "/stripe-webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    try {
-      const event = JSON.parse(req.body.toString());
-      await handleStripeEvent(event);
-      res.json({ received: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  }
-);
+app.get("/health", (req, res) => {
+  res.json({
+    status: "OK",
+    app: APP_NAME,
+    server: "running",
+    db: mongoose.connection.readyState === 1 ? "connected" : "offline",
+    mode: mongoose.connection.readyState === 1 ? "online" : "degraded",
+    uptime: process.uptime(),
+    env: process.env.NODE_ENV || "production"
+  });
+});
 
 // =====================
-// AUTH MIDDLEWARE
+// AUTH
 // =====================
 function auth(req, res, next) {
   try {
@@ -86,24 +88,7 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH
-// =====================
-app.get("/", (req, res) => {
-  res.send("🚀 AI OS FULL STACK RUNNING");
-});
-
-app.get("/health", (req, res) => {
-  res.json({
-    status: "OK",
-    server: "running",
-    db: mongoose.connection.readyState === 1 ? "connected" : "offline",
-    mode: mongoose.connection.readyState === 1 ? "online" : "degraded",
-    uptime: process.uptime(),
-  });
-});
-
-// =====================
-// AUTH ROUTES
+// REGISTER
 // =====================
 app.post("/register", async (req, res) => {
   try {
@@ -117,7 +102,7 @@ app.post("/register", async (req, res) => {
       email,
       password: hashed,
       pro: false,
-      usage: 0,
+      usage: 0
     });
 
     res.json({ message: "User created" });
@@ -127,6 +112,9 @@ app.post("/register", async (req, res) => {
   }
 });
 
+// =====================
+// LOGIN
+// =====================
 app.post("/login", async (req, res) => {
   try {
     const bcrypt = require("bcryptjs");
@@ -149,23 +137,23 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI ENDPOINT
+// AI CORE
 // =====================
 app.post("/ai", auth, async (req, res) => {
   try {
     const reply = await askAI([
-      { role: "user", content: req.body.text },
+      { role: "user", content: req.body.text }
     ]);
 
     res.json({ reply });
 
   } catch {
-    res.json({ reply: "⚠️ AI fallback active" });
+    res.json({ reply: "AI fallback active" });
   }
 });
 
 // =====================
-// AI PRO
+// AI PRO (MEMORY)
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
@@ -174,20 +162,20 @@ app.post("/ai-pro", auth, async (req, res) => {
     if (!chat) {
       chat = new Chat({
         userId: req.user.email,
-        messages: [],
+        messages: []
       });
     }
 
     chat.messages.push({
       role: "user",
-      content: req.body.text,
+      content: req.body.text
     });
 
     const reply = await askAI(chat.messages);
 
     chat.messages.push({
       role: "assistant",
-      content: reply,
+      content: reply
     });
 
     await chat.save();
@@ -195,19 +183,19 @@ app.post("/ai-pro", auth, async (req, res) => {
     res.json({ reply });
 
   } catch {
-    res.json({ reply: "⚠️ AI Pro fallback active" });
+    res.json({ reply: "AI Pro fallback active" });
   }
 });
 
 // =====================
-// AGENT SYSTEM
+// AGENTS
 // =====================
 app.post("/agent/create", auth, async (req, res) => {
   try {
     await Agent.create({
       userId: req.user.email,
       type: req.body.type,
-      prompt: req.body.prompt,
+      prompt: req.body.prompt
     });
 
     res.json({ message: "Agent created" });
@@ -230,7 +218,24 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// CRON JOBS
+// STRIPE WEBHOOK
+// =====================
+app.post(
+  "/stripe-webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const event = JSON.parse(req.body.toString());
+      await handleStripeEvent(event);
+      res.json({ received: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// =====================
+// AGENT WORKER
 // =====================
 cron.schedule("* * * * *", async () => {
   try {
@@ -244,5 +249,5 @@ cron.schedule("* * * * *", async () => {
 // START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 ${APP_NAME} running on port ${PORT}`);
 });
