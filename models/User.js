@@ -8,4 +8,5 @@ const UserSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model("User", UserSchema);
+// ✅ THIS LINE FIXES YOUR ERROR
+module.exports = mongoose.models.User || mongoose.model("User", UserSchema);
