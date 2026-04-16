@@ -6,7 +6,7 @@ const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
 const mongoose = require("mongoose");
 
-const { connectDB, dbReady, dbMode } = require("./db");
+const { connectDB, dbReady, dbHealth } = require("./db");
 
 const User = require("./models/User");
 const Chat = require("./models/Chat");
@@ -20,33 +20,37 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// 🔥 ENTERPRISE CACHE (in-memory fallback)
+// MEMORY SYSTEMS (v6)
 // =====================
-const cache = new Map();
+const memoryQueue = [];
+const aiCache = new Map();
 
 // =====================
 // QUEUE SYSTEM
 // =====================
-const queue = [];
-
-function addToQueue(job) {
-  queue.push(job);
+function queueJob(job) {
+  memoryQueue.push({
+    job,
+    time: Date.now(),
+  });
 }
 
-async function processQueue() {
+// Process queued jobs safely
+setInterval(async () => {
   if (!dbReady()) return;
 
-  while (queue.length > 0) {
-    const job = queue.shift();
+  const batch = Math.min(5, memoryQueue.length);
+
+  for (let i = 0; i < batch; i++) {
+    const item = memoryQueue.shift();
+
     try {
-      await job();
-    } catch (e) {
-      console.error("Queue error:", e.message);
+      await item.job();
+    } catch (err) {
+      console.error("Queue error:", err.message);
     }
   }
-}
-
-setInterval(processQueue, 4000);
+}, 3000);
 
 // =====================
 // DB INIT
@@ -60,7 +64,7 @@ setInterval(processQueue, 4000);
 // =====================
 app.use(cors());
 
-// Stripe webhook raw FIRST
+// Stripe webhook MUST stay raw BEFORE json middleware
 app.post(
   "/stripe-webhook",
   express.raw({ type: "application/json" }),
@@ -93,10 +97,10 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH (ENTERPRISE DASHBOARD)
+// HEALTH (FULL TELEMETRY)
 // =====================
 app.get("/", (req, res) => {
-  res.send("🚀 AI OS v5 ENTERPRISE SYSTEM ONLINE");
+  res.send("🚀 AI OS v6 ENTERPRISE FULL SYSTEM ONLINE");
 });
 
 app.get("/health", (req, res) => {
@@ -105,16 +109,22 @@ app.get("/health", (req, res) => {
   res.json({
     status: "OK",
     server: "running",
-    db: dbMode(),
-    mode:
+
+    db:
       state === 1
-        ? "online"
+        ? "connected"
         : state === 2
         ? "connecting"
         : "offline",
+
+    mode: state === 1 ? "online" : "degraded",
     uptime: process.uptime(),
-    cacheSize: cache.size,
-    queueSize: queue.length,
+
+    system: {
+      queueDepth: memoryQueue.length,
+      cacheSize: aiCache.size,
+      dbHealth: dbHealth(),
+    },
   });
 });
 
@@ -158,15 +168,15 @@ app.post("/login", async (req, res) => {
 });
 
 // =====================
-// AI (CACHE + FALLBACK)
+// AI (CACHE ENABLED)
 // =====================
 app.post("/ai", async (req, res) => {
   try {
     const key = req.body.text;
 
-    if (cache.has(key)) {
+    if (aiCache.has(key)) {
       return res.json({
-        reply: cache.get(key),
+        reply: aiCache.get(key),
         cached: true,
       });
     }
@@ -175,7 +185,7 @@ app.post("/ai", async (req, res) => {
       { role: "user", content: key },
     ]);
 
-    cache.set(key, reply);
+    aiCache.set(key, reply);
 
     res.json({ reply });
   } catch {
@@ -186,13 +196,38 @@ app.post("/ai", async (req, res) => {
 });
 
 // =====================
-// AI PRO (ENTERPRISE SAFE)
+// AI PRO (DB SAFE + QUEUE SUPPORT)
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
     if (!dbReady()) {
+      queueJob(async () => {
+        let chat = await Chat.findOne({ userId: req.user.email });
+
+        if (!chat) {
+          chat = new Chat({
+            userId: req.user.email,
+            messages: [],
+          });
+        }
+
+        chat.messages.push({
+          role: "user",
+          content: req.body.text,
+        });
+
+        const reply = await askAI(chat.messages);
+
+        chat.messages.push({
+          role: "assistant",
+          content: reply,
+        });
+
+        await chat.save();
+      });
+
       return res.json({
-        reply: "⚠️ System offline — request queued",
+        reply: "⚠️ Offline mode — request queued for sync",
       });
     }
 
@@ -232,7 +267,7 @@ app.post("/ai-pro", auth, async (req, res) => {
 app.post("/agent/create", auth, async (req, res) => {
   try {
     if (!dbReady()) {
-      addToQueue(() =>
+      queueJob(() =>
         Agent.create({
           userId: req.user.email,
           type: req.body.type,
@@ -240,7 +275,7 @@ app.post("/agent/create", auth, async (req, res) => {
         })
       );
 
-      return res.json({ message: "Queued (offline mode)" });
+      return res.json({ message: "Agent queued (offline mode)" });
     }
 
     await Agent.create({
@@ -269,7 +304,7 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// CRON SAFE
+// CRON JOBS
 // =====================
 cron.schedule("* * * * *", async () => {
   if (!dbReady()) return;
@@ -282,8 +317,8 @@ cron.schedule("* * * * *", async () => {
 });
 
 // =====================
-// START
+// START SERVER
 // =====================
 app.listen(PORT, () => {
-  console.log(`🚀 AI OS v5 Enterprise running on port ${PORT}`);
+  console.log(`🚀 AI OS v6 running on port ${PORT}`);
 });
