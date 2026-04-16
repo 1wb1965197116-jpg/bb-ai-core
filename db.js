@@ -1,8 +1,9 @@
 const mongoose = require("mongoose");
 
-let state = {
+const state = {
   retry: 0,
   lastError: null,
+  mode: "offline",
 };
 
 const MAX_RETRIES = 6;
@@ -12,6 +13,7 @@ async function connectDB() {
 
   if (!uri) {
     console.error("❌ Missing MONGODB_URI");
+    state.mode = "offline";
     return;
   }
 
@@ -20,11 +22,14 @@ async function connectDB() {
 
     state.retry = 0;
     state.lastError = null;
+    state.mode = "online";
 
-    console.log("✅ MongoDB Connected (stable mode)");
+    console.log("✅ MongoDB Connected (AI OS v5)");
 
   } catch (err) {
     state.lastError = err.message;
+    state.mode = "offline";
+
     console.error("❌ MongoDB Error:", err.message);
 
     scheduleReconnect();
@@ -33,15 +38,15 @@ async function connectDB() {
 
 function scheduleReconnect() {
   if (state.retry >= MAX_RETRIES) {
-    console.log("⚠️ MongoDB offline mode locked (max retries reached)");
+    console.log("⚠️ MongoDB locked in OFFLINE mode (max retries reached)");
     return;
   }
 
   state.retry++;
 
-  const delay = Math.min(2000 * state.retry, 20000);
+  const delay = Math.min(3000 * state.retry, 20000);
 
-  console.log(`🔁 Reconnecting MongoDB in ${delay / 1000}s`);
+  console.log(`🔁 DB reconnect in ${delay / 1000}s (attempt ${state.retry})`);
 
   setTimeout(connectDB, delay);
 }
@@ -50,12 +55,12 @@ function dbReady() {
   return mongoose.connection.readyState === 1;
 }
 
-function dbState() {
+function dbMode() {
   return {
-    connected: dbReady(),
+    mode: dbReady() ? "online" : "offline",
     retry: state.retry,
     lastError: state.lastError,
   };
 }
 
-module.exports = { connectDB, dbReady, dbState };
+module.exports = { connectDB, dbReady, dbMode };
