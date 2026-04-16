@@ -3,17 +3,17 @@ const mongoose = require("mongoose");
 const state = {
   retry: 0,
   lastError: null,
-  mode: "offline",
+  reliabilityScore: 100,
 };
 
-const MAX_RETRIES = 6;
+const MAX_RETRIES = 8;
 
 async function connectDB() {
   const uri = process.env.MONGODB_URI;
 
   if (!uri) {
     console.error("❌ Missing MONGODB_URI");
-    state.mode = "offline";
+    state.reliabilityScore = 0;
     return;
   }
 
@@ -22,13 +22,13 @@ async function connectDB() {
 
     state.retry = 0;
     state.lastError = null;
-    state.mode = "online";
+    state.reliabilityScore = 100;
 
-    console.log("✅ MongoDB Connected (AI OS v5)");
+    console.log("✅ MongoDB Connected (AI OS v6)");
 
   } catch (err) {
     state.lastError = err.message;
-    state.mode = "offline";
+    state.reliabilityScore -= 10;
 
     console.error("❌ MongoDB Error:", err.message);
 
@@ -38,15 +38,16 @@ async function connectDB() {
 
 function scheduleReconnect() {
   if (state.retry >= MAX_RETRIES) {
-    console.log("⚠️ MongoDB locked in OFFLINE mode (max retries reached)");
+    console.log("⚠️ DB locked in degraded mode (v6 safeguard)");
     return;
   }
 
   state.retry++;
 
-  const delay = Math.min(3000 * state.retry, 20000);
+  // 🔥 Adaptive backoff (smarter than fixed delay)
+  const delay = Math.min(2000 * Math.pow(1.5, state.retry), 30000);
 
-  console.log(`🔁 DB reconnect in ${delay / 1000}s (attempt ${state.retry})`);
+  console.log(`🔁 Adaptive reconnect in ${Math.round(delay / 1000)}s`);
 
   setTimeout(connectDB, delay);
 }
@@ -55,12 +56,13 @@ function dbReady() {
   return mongoose.connection.readyState === 1;
 }
 
-function dbMode() {
+function dbHealth() {
   return {
-    mode: dbReady() ? "online" : "offline",
+    connected: dbReady(),
     retry: state.retry,
+    reliabilityScore: state.reliabilityScore,
     lastError: state.lastError,
   };
 }
 
-module.exports = { connectDB, dbReady, dbMode };
+module.exports = { connectDB, dbReady, dbHealth };
