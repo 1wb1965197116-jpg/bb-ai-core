@@ -1,6 +1,3 @@
-// =====================
-// 🔥 LOAD ENV FIRST
-// =====================
 require("dotenv").config();
 
 // =====================
@@ -10,7 +7,7 @@ const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const cron = require("node-cron");
-const mongoose = require("mongoose"); // ✅ FIXED
+const mongoose = require("mongoose");
 
 // DB + MODELS
 const { connectDB } = require("./db");
@@ -30,12 +27,35 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // =====================
-// 🔗 CONNECT DB FIRST
+// GLOBAL DB CONNECT
 // =====================
-connectDB();
+(async () => {
+  await connectDB();
+})();
 
 // =====================
-// ⚠️ STRIPE WEBHOOK (MUST BE FIRST)
+// MONGO EVENTS (HEALTH)
+// =====================
+mongoose.connection.on("connected", () => {
+  console.log("🟢 MongoDB Connected");
+});
+
+mongoose.connection.on("disconnected", () => {
+  console.log("⚠️ MongoDB Disconnected");
+});
+
+mongoose.connection.on("error", (err) => {
+  console.error("🔴 MongoDB Error:", err.message);
+});
+
+// =====================
+// MIDDLEWARE
+// =====================
+app.use(cors());
+app.use(express.json());
+
+// =====================
+// STRIPE WEBHOOK (MUST BE RAW)
 // =====================
 app.post(
   "/stripe-webhook",
@@ -52,10 +72,7 @@ app.post(
   }
 );
 
-// =====================
-// MIDDLEWARE
-// =====================
-app.use(cors());
+// AFTER WEBHOOK (JSON PARSER SAFE)
 app.use(express.json());
 
 // =====================
@@ -64,6 +81,8 @@ app.use(express.json());
 function auth(req, res, next) {
   try {
     const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
+
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
@@ -72,16 +91,23 @@ function auth(req, res, next) {
 }
 
 // =====================
-// HEALTH + ROOT
+// HEALTH CHECK
 // =====================
 app.get("/", (req, res) => {
   res.send("🚀 BB AI LEVEL 3 LIVE");
 });
 
 app.get("/health", (req, res) => {
+  const state = mongoose.connection.readyState;
+
   res.json({
     status: "OK",
-    db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    db:
+      state === 1
+        ? "connected"
+        : state === 2
+        ? "connecting"
+        : "disconnected",
   });
 });
 
@@ -93,9 +119,14 @@ app.post("/register", async (req, res) => {
     const bcrypt = require("bcryptjs");
 
     const { email, password } = req.body;
+
     const hashed = await bcrypt.hash(password, 10);
 
-    await User.create({ email, password: hashed, pro: false });
+    await User.create({
+      email,
+      password: hashed,
+      pro: false,
+    });
 
     res.json({ message: "User created" });
   } catch (err) {
@@ -131,6 +162,7 @@ app.post("/ai", async (req, res) => {
     const reply = await askAI([
       { role: "user", content: req.body.text },
     ]);
+
     res.json({ reply });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -138,7 +170,7 @@ app.post("/ai", async (req, res) => {
 });
 
 // =====================
-// AI (PRO MEMORY)
+// AI PRO (MEMORY)
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
@@ -151,11 +183,17 @@ app.post("/ai-pro", auth, async (req, res) => {
       });
     }
 
-    chat.messages.push({ role: "user", content: req.body.text });
+    chat.messages.push({
+      role: "user",
+      content: req.body.text,
+    });
 
     const reply = await askAI(chat.messages);
 
-    chat.messages.push({ role: "assistant", content: reply });
+    chat.messages.push({
+      role: "assistant",
+      content: reply,
+    });
 
     await chat.save();
 
@@ -166,7 +204,7 @@ app.post("/ai-pro", auth, async (req, res) => {
 });
 
 // =====================
-// CREATE AGENT
+// AGENTS
 // =====================
 app.post("/agent/create", auth, async (req, res) => {
   try {
@@ -183,7 +221,7 @@ app.post("/agent/create", auth, async (req, res) => {
 });
 
 // =====================
-// STRIPE CHECKOUT
+// STRIPE SUBSCRIPTION
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -195,15 +233,24 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// 🤖 AUTO AGENTS
+// CRON JOB (SAFE)
 // =====================
 cron.schedule("* * * * *", async () => {
-  console.log("⏱ Running AI agents...");
-  await runAgents();
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      console.log("⏳ Skipping agents — DB not ready");
+      return;
+    }
+
+    console.log("⏱ Running AI agents...");
+    await runAgents();
+  } catch (err) {
+    console.error("Agent error:", err.message);
+  }
 });
 
 // =====================
-// GLOBAL ERROR HANDLER
+// GLOBAL ERROR HANDLING
 // =====================
 process.on("uncaughtException", (err) => {
   console.error("💥 Uncaught Exception:", err.message);
