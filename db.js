@@ -1,68 +1,88 @@
+// =====================
+// 🔐 LOCKED DB CONNECTION
+// =====================
 const mongoose = require("mongoose");
 
-const state = {
-  retry: 0,
-  lastError: null,
-  reliabilityScore: 100,
-};
+let isConnected = false;
 
-const MAX_RETRIES = 8;
-
-async function connectDB() {
-  const uri = process.env.MONGODB_URI;
-
+// =====================
+// VALIDATE URI
+// =====================
+function validateMongoURI(uri) {
   if (!uri) {
-    console.error("❌ Missing MONGODB_URI");
-    state.reliabilityScore = 0;
-    return;
+    throw new Error("❌ MONGO_URI is missing from environment variables");
   }
+
+  if (
+    !uri.startsWith("mongodb://") &&
+    !uri.startsWith("mongodb+srv://")
+  ) {
+    throw new Error("❌ Invalid MongoDB URI format");
+  }
+
+  if (uri.includes("clustero") || uri.includes("cluster0o")) {
+    throw new Error("❌ Invalid cluster hostname (typo detected)");
+  }
+
+  if (!uri.includes("@")) {
+    throw new Error("❌ Missing username/password in URI");
+  }
+
+  if (!uri.includes(".mongodb.net")) {
+    throw new Error("❌ Invalid MongoDB host");
+  }
+
+  console.log("✅ Mongo URI validated");
+}
+
+// =====================
+// CONNECT FUNCTION
+// =====================
+async function connectDB() {
+  const uri = process.env.MONGO_URI;
 
   try {
-    await mongoose.connect(uri);
+    validateMongoURI(uri);
 
-    state.retry = 0;
-    state.lastError = null;
-    state.reliabilityScore = 100;
+    if (isConnected) {
+      console.log("⚡ Using existing MongoDB connection");
+      return;
+    }
 
-    console.log("✅ MongoDB Connected (AI OS v6)");
+    console.log("🔌 Connecting to MongoDB...");
 
+    const conn = await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+    });
+
+    isConnected = true;
+
+    console.log(
+      `✅ MongoDB Connected → ${conn.connection.host}`
+    );
   } catch (err) {
-    state.lastError = err.message;
-    state.reliabilityScore -= 10;
-
     console.error("❌ MongoDB Error:", err.message);
 
-    scheduleReconnect();
+    // adaptive retry
+    const retryTime = Math.min(10000, 3000 + Math.random() * 4000);
+
+    console.log(`🔁 Retrying in ${Math.floor(retryTime / 1000)}s...`);
+
+    setTimeout(connectDB, retryTime);
   }
 }
 
-function scheduleReconnect() {
-  if (state.retry >= MAX_RETRIES) {
-    console.log("⚠️ DB locked in degraded mode (v6 safeguard)");
-    return;
-  }
+// =====================
+// CONNECTION EVENTS
+// =====================
+mongoose.connection.on("disconnected", () => {
+  console.log("⚠️ MongoDB disconnected");
+  isConnected = false;
+});
 
-  state.retry++;
+mongoose.connection.on("error", (err) => {
+  console.error("💥 MongoDB crash:", err.message);
+});
 
-  // 🔥 Adaptive backoff (smarter than fixed delay)
-  const delay = Math.min(2000 * Math.pow(1.5, state.retry), 30000);
-
-  console.log(`🔁 Adaptive reconnect in ${Math.round(delay / 1000)}s`);
-
-  setTimeout(connectDB, delay);
-}
-
-function dbReady() {
-  return mongoose.connection.readyState === 1;
-}
-
-function dbHealth() {
-  return {
-    connected: dbReady(),
-    retry: state.retry,
-    reliabilityScore: state.reliabilityScore,
-    lastError: state.lastError,
-  };
-}
-
-module.exports = { connectDB, dbReady, dbHealth };
+module.exports = { connectDB };
