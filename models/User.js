@@ -4,9 +4,7 @@ const UserSchema = new mongoose.Schema({
   email: String,
   password: String,
   pro: { type: Boolean, default: false },
-  stripeCustomerId: String,
-  createdAt: { type: Date, default: Date.now }
+  usage: { type: Number, default: 0 },
 });
 
-// ✅ THIS LINE FIXES YOUR ERROR
 module.exports = mongoose.models.User || mongoose.model("User", UserSchema);
