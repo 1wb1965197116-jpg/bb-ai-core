@@ -1,88 +1,68 @@
-// =====================
-// 🔐 LOCKED DB CONNECTION
-// =====================
 const mongoose = require("mongoose");
 
-let isConnected = false;
-
 // =====================
-// VALIDATE URI
+// 🔒 GLOBAL CACHE (prevents multiple connections)
 // =====================
-function validateMongoURI(uri) {
-  if (!uri) {
-    throw new Error("❌ MONGO_URI is missing from environment variables");
-  }
+let cached = global.mongoose;
 
-  if (
-    !uri.startsWith("mongodb://") &&
-    !uri.startsWith("mongodb+srv://")
-  ) {
-    throw new Error("❌ Invalid MongoDB URI format");
-  }
-
-  if (uri.includes("clustero") || uri.includes("cluster0o")) {
-    throw new Error("❌ Invalid cluster hostname (typo detected)");
-  }
-
-  if (!uri.includes("@")) {
-    throw new Error("❌ Missing username/password in URI");
-  }
-
-  if (!uri.includes(".mongodb.net")) {
-    throw new Error("❌ Invalid MongoDB host");
-  }
-
-  console.log("✅ Mongo URI validated");
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
 }
 
 // =====================
-// CONNECT FUNCTION
+// 🔗 CONNECT FUNCTION
 // =====================
-async function connectDB() {
-  const uri = process.env.MONGO_URI;
+const connectDB = async () => {
+  if (!process.env.MONGO_URI) {
+    console.error("❌ MONGO_URI is missing");
+    return;
+  }
 
-  try {
-    validateMongoURI(uri);
+  // Already connected
+  if (cached.conn) {
+    return cached.conn;
+  }
 
-    if (isConnected) {
-      console.log("⚡ Using existing MongoDB connection");
-      return;
-    }
-
+  // Create connection once
+  if (!cached.promise) {
     console.log("🔌 Connecting to MongoDB...");
 
-    const conn = await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+    cached.promise = mongoose.connect(process.env.MONGO_URI, {
+      dbName: "bb-ai-core", // optional but recommended
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
     });
+  }
 
-    isConnected = true;
-
-    console.log(
-      `✅ MongoDB Connected → ${conn.connection.host}`
-    );
+  try {
+    cached.conn = await cached.promise;
+    console.log("✅ MongoDB Connected");
+    return cached.conn;
   } catch (err) {
     console.error("❌ MongoDB Error:", err.message);
+    cached.promise = null;
 
-    // adaptive retry
-    const retryTime = Math.min(10000, 3000 + Math.random() * 4000);
-
-    console.log(`🔁 Retrying in ${Math.floor(retryTime / 1000)}s...`);
-
-    setTimeout(connectDB, retryTime);
+    // retry after delay
+    setTimeout(connectDB, 5000);
   }
-}
+};
 
 // =====================
-// CONNECTION EVENTS
+// 📡 CONNECTION EVENTS
 // =====================
+mongoose.connection.on("connected", () => {
+  console.log("📡 MongoDB connection established");
+});
+
 mongoose.connection.on("disconnected", () => {
   console.log("⚠️ MongoDB disconnected");
-  isConnected = false;
 });
 
 mongoose.connection.on("error", (err) => {
   console.error("💥 MongoDB crash:", err.message);
 });
 
+// =====================
+// 🚀 EXPORT
+// =====================
 module.exports = { connectDB };
