@@ -1,35 +1,28 @@
 const Agent = require("../models/Agent");
 const { askAI } = require("./ai");
 
-async function runAgents() {
-  const agents = await Agent.find({ active: true });
+const runAgents = async () => {
+  const agents = await Agent.find();
 
   for (let agent of agents) {
     try {
-      const result = await askAI([
-        {
-          role: "system",
-          content:
-            agent.type === "business"
-              ? "Generate profitable business ideas."
-              : agent.type === "money"
-              ? "Generate ways to make money online."
-              : "Write professional emails."
-        },
-        {
-          role: "user",
-          content: agent.prompt
-        }
+      let system = "You are a helpful AI.";
+
+      if (agent.type === "business")
+        system = "Generate profitable business ideas.";
+      if (agent.type === "money")
+        system = "Generate ways to make money online.";
+
+      const reply = await askAI([
+        { role: "system", content: system },
+        { role: "user", content: agent.prompt || "Run task" },
       ]);
 
-      agent.lastRun = new Date();
-      await agent.save();
-
-      console.log("🤖 Agent Run:", result);
+      console.log("🤖 Agent:", reply);
     } catch (err) {
       console.error("Agent error:", err.message);
     }
   }
-}
+};
 
 module.exports = { runAgents };
