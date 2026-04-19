@@ -1,5 +1,11 @@
+// =====================
+// 🔥 LOAD ENV FIRST
+// =====================
 require("dotenv").config();
 
+// =====================
+// IMPORTS
+// =====================
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -7,32 +13,49 @@ const cron = require("node-cron");
 const mongoose = require("mongoose");
 const path = require("path");
 
+// DB
 const { connectDB } = require("./db");
 
+// MODELS
 const User = require("./models/User");
 const Chat = require("./models/Chat");
 const Agent = require("./models/Agent");
 
+// SERVICES
 const { askAI } = require("./services/ai");
 const { createCheckout, handleStripeEvent } = require("./services/stripe");
 const { runAgents } = require("./services/worker");
 
+// =====================
+// INIT
+// =====================
 const app = express();
 const PORT = process.env.PORT || 10000;
-
-// =====================
-// APP CONFIG
-// =====================
 const APP_NAME = process.env.APP_NAME || "bbai-core";
 
 console.log(`🚀 ${APP_NAME} starting...`);
 
 // =====================
-// DB CONNECT
+// 🔗 CONNECT DB ONCE
 // =====================
-(async () => {
-  await connectDB();
-})();
+connectDB();
+
+// =====================
+// ⚠️ STRIPE WEBHOOK FIRST
+// =====================
+app.post(
+  "/stripe-webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const event = JSON.parse(req.body.toString());
+      await handleStripeEvent(event);
+      res.json({ received: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 // =====================
 // MIDDLEWARE
@@ -41,7 +64,7 @@ app.use(cors());
 app.use(express.json());
 
 // =====================
-// FRONTEND STATIC
+// STATIC FRONTEND
 // =====================
 app.use(express.static(path.join(__dirname, "frontend")));
 
@@ -58,22 +81,22 @@ app.get("/billing", (req, res) => {
 });
 
 // =====================
-// HEALTH (PRO SAFE)
+// HEALTH CHECK
 // =====================
 app.get("/health", (req, res) => {
   res.json({
     status: "OK",
     app: APP_NAME,
-    server: "running",
-    db: mongoose.connection.readyState === 1 ? "connected" : "offline",
-    mode: mongoose.connection.readyState === 1 ? "online" : "degraded",
+    db:
+      mongoose.connection.readyState === 1
+        ? "connected"
+        : "disconnected",
     uptime: process.uptime(),
-    env: process.env.NODE_ENV || "production"
   });
 });
 
 // =====================
-// AUTH
+// AUTH MIDDLEWARE
 // =====================
 function auth(req, res, next) {
   try {
@@ -102,11 +125,10 @@ app.post("/register", async (req, res) => {
       email,
       password: hashed,
       pro: false,
-      usage: 0
+      usage: 0,
     });
 
     res.json({ message: "User created" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -130,30 +152,28 @@ app.post("/login", async (req, res) => {
     const token = jwt.sign({ email }, process.env.JWT_SECRET);
 
     res.json({ token });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // =====================
-// AI CORE
+// AI
 // =====================
 app.post("/ai", auth, async (req, res) => {
   try {
     const reply = await askAI([
-      { role: "user", content: req.body.text }
+      { role: "user", content: req.body.text },
     ]);
 
     res.json({ reply });
-
   } catch {
     res.json({ reply: "AI fallback active" });
   }
 });
 
 // =====================
-// AI PRO (MEMORY)
+// AI PRO
 // =====================
 app.post("/ai-pro", auth, async (req, res) => {
   try {
@@ -162,26 +182,25 @@ app.post("/ai-pro", auth, async (req, res) => {
     if (!chat) {
       chat = new Chat({
         userId: req.user.email,
-        messages: []
+        messages: [],
       });
     }
 
     chat.messages.push({
       role: "user",
-      content: req.body.text
+      content: req.body.text,
     });
 
     const reply = await askAI(chat.messages);
 
     chat.messages.push({
       role: "assistant",
-      content: reply
+      content: reply,
     });
 
     await chat.save();
 
     res.json({ reply });
-
   } catch {
     res.json({ reply: "AI Pro fallback active" });
   }
@@ -195,18 +214,17 @@ app.post("/agent/create", auth, async (req, res) => {
     await Agent.create({
       userId: req.user.email,
       type: req.body.type,
-      prompt: req.body.prompt
+      prompt: req.body.prompt,
     });
 
     res.json({ message: "Agent created" });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // =====================
-// STRIPE
+// STRIPE CHECKOUT
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -218,27 +236,11 @@ app.post("/create-subscription", async (req, res) => {
 });
 
 // =====================
-// STRIPE WEBHOOK
-// =====================
-app.post(
-  "/stripe-webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    try {
-      const event = JSON.parse(req.body.toString());
-      await handleStripeEvent(event);
-      res.json({ received: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-// =====================
-// AGENT WORKER
+// AGENT CRON
 // =====================
 cron.schedule("* * * * *", async () => {
   try {
+    console.log("⏱ Running AI agents...");
     await runAgents();
   } catch (err) {
     console.error("Agent error:", err.message);
