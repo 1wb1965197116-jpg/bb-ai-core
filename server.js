@@ -4,6 +4,11 @@
 require("dotenv").config();
 
 // =====================
+// DEBUG ENV
+// =====================
+console.log("🔍 MONGO_URI:", process.env.MONGO_URI ? "FOUND" : "MISSING");
+
+// =====================
 // IMPORTS
 // =====================
 const express = require("express");
@@ -36,12 +41,12 @@ const APP_NAME = process.env.APP_NAME || "bbai-core";
 console.log(`🚀 ${APP_NAME} starting...`);
 
 // =====================
-// 🔗 CONNECT DB ONCE
+// CONNECT DB (ONCE)
 // =====================
 connectDB();
 
 // =====================
-// ⚠️ STRIPE WEBHOOK FIRST
+// STRIPE WEBHOOK FIRST
 // =====================
 app.post(
   "/stripe-webhook",
@@ -52,6 +57,7 @@ app.post(
       await handleStripeEvent(event);
       res.json({ received: true });
     } catch (err) {
+      console.error("Stripe webhook error:", err.message);
       res.status(500).json({ error: err.message });
     }
   }
@@ -67,18 +73,6 @@ app.use(express.json());
 // STATIC FRONTEND
 // =====================
 app.use(express.static(path.join(__dirname, "frontend")));
-
-app.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(__dirname, "frontend/dashboard.html"));
-});
-
-app.get("/admin", (req, res) => {
-  res.sendFile(path.join(__dirname, "frontend/admin.html"));
-});
-
-app.get("/billing", (req, res) => {
-  res.sendFile(path.join(__dirname, "frontend/billing.html"));
-});
 
 // =====================
 // HEALTH CHECK
@@ -96,7 +90,7 @@ app.get("/health", (req, res) => {
 });
 
 // =====================
-// AUTH MIDDLEWARE
+// AUTH
 // =====================
 function auth(req, res, next) {
   try {
@@ -125,7 +119,6 @@ app.post("/register", async (req, res) => {
       email,
       password: hashed,
       pro: false,
-      usage: 0,
     });
 
     res.json({ message: "User created" });
@@ -167,7 +160,7 @@ app.post("/ai", auth, async (req, res) => {
     ]);
 
     res.json({ reply });
-  } catch {
+  } catch (err) {
     res.json({ reply: "AI fallback active" });
   }
 });
@@ -201,7 +194,7 @@ app.post("/ai-pro", auth, async (req, res) => {
     await chat.save();
 
     res.json({ reply });
-  } catch {
+  } catch (err) {
     res.json({ reply: "AI Pro fallback active" });
   }
 });
@@ -224,7 +217,7 @@ app.post("/agent/create", auth, async (req, res) => {
 });
 
 // =====================
-// STRIPE CHECKOUT
+// STRIPE
 // =====================
 app.post("/create-subscription", async (req, res) => {
   try {
@@ -239,16 +232,12 @@ app.post("/create-subscription", async (req, res) => {
 // AGENT CRON
 // =====================
 cron.schedule("* * * * *", async () => {
-  try {
-    console.log("⏱ Running AI agents...");
-    await runAgents();
-  } catch (err) {
-    console.error("Agent error:", err.message);
-  }
+  console.log("⏱ Running agents...");
+  await runAgents();
 });
 
 // =====================
-// START SERVER
+// START
 // =====================
 app.listen(PORT, () => {
   console.log(`🚀 ${APP_NAME} running on port ${PORT}`);
