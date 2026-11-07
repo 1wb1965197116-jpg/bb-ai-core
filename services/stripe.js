@@ -29,4 +29,6 @@ const handleStripeEvent = async (event) => {
   }
 };
 
-module.exports = { createCheckout, handleStripeEvent };
+const verifyStripeEvent = (body, signature, secret) => stripe.webhooks.constructEvent(body, signature, secret);
+
+module.exports = { createCheckout, handleStripeEvent, verifyStripeEvent };
